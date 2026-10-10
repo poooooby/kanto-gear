@@ -57,7 +57,11 @@ function Fonts:select(base, value)
   value = tostring(value or "")
   -- Line breaks are layout commands, not missing font glyphs.
   local glyphs = value:gsub("%c", "")
-  if glyphs == "" or not base.hasGlyphs or base:hasGlyphs(glyphs) then return base, 0 end
+  if glyphs == "" or not base.hasGlyphs then return base, 0 end
+  -- Games draw some text as raw engine bytes (pen codes such as 0xFC ...), which
+  -- LOVE rejects as invalid UTF-8: that is not translated text, so leave it alone.
+  local okGlyphs, covered = pcall(base.hasGlyphs, base, glyphs)
+  if not okGlyphs or covered then return base, 0 end
   local multiplier = base:getHeight() >= 20 and 2 or 1
   local font = self:loadFont(self, multiplier)
   if self.readBundled and (not font or not font:hasGlyphs(glyphs)) then
