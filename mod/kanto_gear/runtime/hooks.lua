@@ -68,9 +68,18 @@ return function(
     return result
   end, 1000)
 
+  -- a third-party store module's own surface is up: the Gear stands down entirely
+  -- instead of sharing the window with it, and comes back when the module reports
+  -- itself gone (runtime/modules.lua, the spec's `shown`)
+  local function moduleShown()
+    return displayRuntime.gearModules.anyShown()
+  end
+
   mod.hooks:wrap("render.viewport", function(next, context)
     local available = next(context)
     THEME.nativeWindowLayout = nil
+    -- the module gets the whole window: no viewport carved out for the phone
+    if moduleShown() then return available end
     if not (session.active and inlineDisplay() and context) then return available end
     local base = type(available) == "table" and available or {
       x = 0, y = 0, width = context.width, height = context.height,
@@ -102,12 +111,6 @@ return function(
     return next()
   end, 1000)
 
-  -- a third-party store module's own surface is up: the Gear stands down entirely
-  -- instead of sharing the window with it, and comes back when the module reports
-  -- itself gone (runtime/modules.lua, the spec's `shown`)
-  local function moduleShown()
-    return displayRuntime.gearModules.anyShown()
-  end
 
   mod.hooks:wrap("render.output", function(next, context)
     if session.active and moduleShown() then
