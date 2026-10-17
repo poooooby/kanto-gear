@@ -43,7 +43,29 @@ return function(H, ui, K)
   -- Draws icon `name` with its top-left at x, y (24×24, or 16×16 for s_/c_). Falls back to run
   -- drawing when images cannot be created (headless tests).
   local palCache = {}
+  -- third-party store modules (runtime/modules.lua) add their icon here: the same
+  -- pal/rows art, or their own draw(x, y) when the mod draws the button itself
+  local customIcons, extraApps = {}, {}
+  function H:v4AddAppIcon(name, art)
+    if type(art) == "function" then
+      customIcons[name] = art
+    else
+      ART_SET[name] = art
+      images[name], images[name .. ":g"] = nil, nil
+      palCache[name] = nil
+    end
+    extraApps[#extraApps + 1] = name
+    self.v4HomeIconCache = nil
+  end
   function H:v4Icon(name, x, y, grey)
+    local custom = customIcons[name]
+    if custom then
+      local ok = pcall(custom, x, y)
+      if ok then
+        ui.graphics.setColor(1, 1, 1, 1)
+        return true
+      end
+    end
     local img = build(name, grey)
     local G = ui.graphics
     if img then
@@ -81,10 +103,12 @@ return function(H, ui, K)
   function H:v4HomeIcons()
     if self.v4HomeIconCache then return self.v4HomeIconCache end
     local out = {}
-    for _, id in ipairs(APPS) do
+    local function seat(id)
       out[id] = { id = id, left = 0, top = 0, right = 23, bottom = 23,
         draw = function(x, y) self:v4Icon(id, x, y) end }
     end
+    for _, id in ipairs(APPS) do seat(id) end
+    for _, id in ipairs(extraApps) do seat(id) end
     self.v4HomeIconCache = out
     return out
   end

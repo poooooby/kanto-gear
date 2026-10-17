@@ -58,6 +58,22 @@ function I18N:format(key, ...)
   return ok and value or string.format(key, ...)
 end
 
+-- Third-party store modules may bring their own translations; missing entries
+-- fall back to the module's English strings, never to an error.
+function I18N:extend(language, entries)
+  language = languageCode(language)
+  if not (language and SUPPORTED[language] and language ~= "en") then return false end
+  if type(entries) ~= "table" then return false end
+  local catalog = self.catalogs[language]
+  if not catalog then return false end
+  for key, value in pairs(entries) do
+    if type(key) == "string" and type(value) == "string" and catalog[key] == nil then
+      catalog[key] = value
+    end
+  end
+  return true
+end
+
 function I18N:coverage(language)
   language = languageCode(language) or "en"
   local missing = {}

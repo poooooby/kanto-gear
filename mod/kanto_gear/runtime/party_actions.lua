@@ -24,6 +24,14 @@ return function(
       session.page, session.dirty = "SETTINGS", true
       return true
     end
+    if displayRuntime.gearModules.specs[id] then
+      -- a third-party module: no Gear page of ours; the mod's own surface takes
+      -- the Gear's place. The Gear falls back to its home screen first, so
+      -- closing the module lands there, wherever it was opened from.
+      home.activeApp = nil
+      session.page, session.dirty = "HOME", true
+      return displayRuntime.gearModules.open(id)
+    end
     local app = displayRuntime.storeById[id]
     local package = displayRuntime.homeCatalog.packages[id]
     if not app or not app.target or not package or not package.installed then

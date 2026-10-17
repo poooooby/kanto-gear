@@ -94,6 +94,53 @@ Use `tools/hgss_preview/localization.ps1` for the language/Gen 1/2/Light/Dark
 matrix, optionally with `-Screens` and `-Languages`. Run previews sequentially:
 they share one temporary LÖVE runtime and require local sprite fixtures.
 
+## Third-party store modules
+
+Another mod can add its own app to the Silph Store. The Gear ships no knowledge
+of any third-party mod: only a mod that calls the hook appears, and everything it
+shows is its own - the engine-drawn icon, the label, the description and the open
+callback. Installed tiles place and move like the built-in apps, and while the
+module reports its own surface up, the Gear stands down from the bottom screen
+entirely and returns to its home screen when the module closes.
+
+From the other mod (list `kanto_gear` in `optional_dependencies` so the hook
+exists at your load), the base template:
+
+```lua
+local gear = mod.find("kanto_gear")
+local modules = gear and gear.exports and gear.exports.modules   -- api = 1
+if modules then
+  modules.register({
+    id = "my_module",                  -- lowercase [a-z0-9_]; also the icon id
+    label = "MY MODULE",               -- at most 20 characters
+    category = "TOOLS",
+    description = {                    -- 1 to 3 store lines
+      "WHAT IT DOES, LINE ONE.",
+      "LINE TWO.",
+    },
+    -- the icon: the Gear's 24x24 pixel format ('o' = shared outline, '.' = clear),
+    -- or a function(x, y) that draws your own 24x24 button with the engine
+    icon = { pal = { a = "e04838" }, rows = { --[[ 24 strings of 24 ]] } },
+    accent = "red",                    -- blue | amber | red | green | slate
+    available = function(ctx)          -- optional; per game bind
+      return ctx.generation == 3
+    end,
+    shown = function()                 -- optional; true while your surface is up:
+      return myScreenIsOpen            -- the Gear stands down meanwhile
+    end,
+    open = function()                  -- the press, from the tile or OPEN APP;
+      return openMyScreen()            -- return true when you took the screen
+    end,
+    translations = {                   -- optional; de / es / fr / it / ja
+      de = { ["MY MODULE"] = "MEIN MODUL" },
+    },
+  })
+end
+```
+
+`register` returns `true`, or `nil, why` and a warning in the log when the spec
+is refused. `tests/third_party_modules_test.lua` covers the contract.
+
 ## Translations
 
 Built-in UI catalogs live in `mod/kanto_gear/i18n/catalogs/`. English labels are

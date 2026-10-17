@@ -102,7 +102,19 @@ return function(
     return next()
   end, 1000)
 
+  -- a third-party store module's own surface is up: the Gear stands down entirely
+  -- instead of sharing the window with it, and comes back when the module reports
+  -- itself gone (runtime/modules.lua, the spec's `shown`)
+  local function moduleShown()
+    return displayRuntime.gearModules.anyShown()
+  end
+
   mod.hooks:wrap("render.output", function(next, context)
+    if session.active and moduleShown() then
+      session.primaryBottomRect = nil
+      session.displayReady = false
+      return next(context)
+    end
     if session.active and inlineDisplay() and not THEME.nativeWindowLayout
         and context and context.canvas then
       if next(context) == true then
@@ -232,6 +244,13 @@ return function(
   end, 1000)
 
   mod.hooks:wrap("render.window", function(next, windowGame, context)
+    if session.active and moduleShown() then
+      -- the module's surface is up: the Gear stands down here too (the native
+      -- window layout draws through this wrap, not render.output)
+      session.primaryBottomRect = nil
+      session.displayReady = false
+      return next(windowGame, context)
+    end
     if not (session.active and inlineDisplay() and THEME.nativeWindowLayout
         and context and context.canvas) then
       return next(windowGame, context)

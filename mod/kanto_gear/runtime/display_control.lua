@@ -219,6 +219,11 @@ return function(
     local gen1 = not displayRuntime.gen3 and not (session.game.save and session.game.save.generation == 2)
     displayRuntime.homeCatalog.surfaces.daycare_small_widget.hidden = gen1
     if displayRuntime.applyCalendarSupport then displayRuntime.applyCalendarSupport() end
+    -- third-party store modules decide their availability for this game
+    displayRuntime.gearModules.applyAvailability({
+      generation = session.game and session.game.generation,
+      gen3 = displayRuntime.gen3 ~= nil,
+    })
     displayRuntime.autoBattle = {}
     displayRuntime.touchGuard.key, displayRuntime.touchGuard.pending = nil, false
     displayRuntime.touchGuard.readyAt = 0
