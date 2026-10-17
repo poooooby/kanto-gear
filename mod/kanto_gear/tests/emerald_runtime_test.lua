@@ -37,6 +37,7 @@ function fs.getDirectoryItems(file)
   if file == "mods" then return { "kanto_gear" } end
   return Fs.getDirectoryItems(resolve(file))
 end
+if _G.KANTO_GEAR_BEFORE_LOAD then _G.KANTO_GEAR_BEFORE_LOAD() end
 local run = T.sdk.loadMod(path, { generation = 3, data = data, fs = fs })
 T.eq(run.mod and run.mod.state, "loaded", "native Gen3 test build loads")
 for _, err in ipairs(run.errors) do print(err.message or err.error or tostring(err)) end
@@ -44,12 +45,7 @@ local raw = setmetatable({ generation = 3, data = data, phase = "boot" },
   { __index = require("src.core.Game3") })
 run.loader.game = raw
 run.loader.events:emit("game.ready", { game = raw })
-local function upvalue(fn, target)
-  for i = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, i)
-    if name == target then return value end
-  end
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local hook
 for _, entry in ipairs(run.loader.hooks.chains["input.step"] or {}) do
   if entry.owner == "kanto_gear" then hook = entry.callback end
@@ -89,15 +85,16 @@ local RseBag=require("src.ui.game3.rse.bag_menu")
 for _,name in ipairs({"ITEM_POTION","ITEM_POKE_BALL","ITEM_TM01","ITEM_CHERI_BERRY","ITEM_OLD_ROD"}) do
  local id=C:require("items",name)
  Bag.add(session.bag,id,2);display.gen3:refresh()
- T.check(display.useBagItem(id),"open "..name)
+ T.check(display.gen3Ui:openBagItem(id),"open "..name)
  NativeBag.settle()
  T.eq(Stack.top().id,"bag","Emerald uses pockets, not FRLG containers")
  Screens.handleInput("bag",NativeBag,input("a"),session)
  local menu=display.startMenu()
  T.check(menu~=nil,"project actions "..name)
- T.check(menu.nativeGrid,"native action grid mirrored "..name)
+ T.check(menu.itemActionId==id and menu.itemModel,"Emerald item action uses the shared detail card "..name)
+ T.check(not menu.nativeGrid,"native grid geometry is replaced by the common item page")
  for i,item in ipairs(menu.items) do
-  T.check(item.rect~=nil,"all actions have native grid position")
+  T.same(item.rect,{display.ItemPage.rect(i,#menu.items)},"all actions have common item page positions")
   T.check(display.StartMenu.select(menu,i),"select action "..i)
   local cell=RseBag._st.grid.cells[RseBag._st.gridPos+1]
   T.eq(cell.idx,NativeBag.actionCursor,"touch and native spatial cursor agree")
@@ -113,7 +110,7 @@ for _,name in ipairs({"ITEM_POTION","ITEM_POKE_BALL","ITEM_TM01","ITEM_CHERI_BER
  NativeBag.close();Stack.clear();RseBag.reset()
 end
 -- Emerald has its own toss texts and a fourth bedroom-PC action.
-T.check(display.useBagItem(C:require("items","ITEM_POTION")),"open potion for toss")
+T.check(display.gen3Ui:openBagItem(C:require("items","ITEM_POTION")),"open potion for toss")
 NativeBag.settle();Screens.handleInput("bag",NativeBag,input("a"),session)
 local menu=display.startMenu()
 for i,item in ipairs(menu.items) do if item.label=="TOSS" then display.StartMenu.select(menu,i) end end
@@ -133,8 +130,8 @@ T.eq(#menu.items,4,"bedroom PC includes decoration")
 display.StartMenu.select(menu,1);Pc.handleInput(input("a"))
 T.eq(#display.startMenu().items,4,"Emerald PC storage includes toss")
 Pc.close();Stack.clear()
-T.check(display.openPartySummary(1),"open native summary")
 local Summary=require("src.ui.game3.summary_menu")
+Summary.openMenu(session.party,1,{session=session})
 for page=0,2 do
  Summary._page=page;Summary._slide.active=false
  display.gen3.syncScreens()
@@ -171,13 +168,7 @@ local refreshBattle
 for _,entry in ipairs(run.loader.hooks.chains["render.compose"] or {}) do
  if entry.owner=="kanto_gear" then refreshBattle=upvalue(entry.callback,"refreshBattle") end
 end
-local owns=display.gen3Presentation.owns
-for i=1,debug.getinfo(owns,"u").nups do
- local name=debug.getupvalue(owns,i)
- if name=="active" or name=="displayReady" or name=="hasDisplay" then
-  debug.setupvalue(owns,i,name=="hasDisplay" and function() return true end or true)
- end
-end
+T.check(display.gen3Presentation ~= nil,"native presentation has guarded battle wrappers")
 local skin=Screens.skin("bag",session)
 local skinDraw,skinCalls=skin.draw,0
 skin.draw=function() skinCalls=skinCalls+1 end
@@ -185,9 +176,6 @@ run.loader.modOptions.kanto_gear = run.loader.modOptions.kanto_gear or {}
 for _,variant in ipairs({"hgss","hgss_dark"}) do
  run.loader.modOptions.kanto_gear.theme_v3=variant
  run.loader.events:emit("mod.options_changed",{mod="kanto_gear",key="theme_v3"})
- for i=1,debug.getinfo(owns,"u").nups do
-  if debug.getupvalue(owns,i)=="displayReady" then debug.setupvalue(owns,i,true) end
- end
  for _,mode in ipairs({"standard","info","gear","full"}) do
   run.loader.modOptions.kanto_gear.battle_view=mode
   for _,scene in ipairs({"root","moves","party","bag"}) do
@@ -201,13 +189,31 @@ for _,variant in ipairs({"hgss","hgss_dark"}) do
    if scene=="bag" then
     T.check(display.startMenu()~=nil,"battle bag mirrored")
     local before=skinCalls;Screens.draw("bag",NativeBag,session)
-    T.eq(skinCalls-before,(mode=="gear" or mode=="full") and 0 or 1,"Emerald skin follows battle ownership")
+    T.eq(skinCalls-before,1,"Emerald skin always renders above")
    end
    require("src.ui.game3.party_menu").close();NativeBag.close();Stack.clear()
   end
  end
 end
 skin.draw=skinDraw
+Party.giveMon(foes, P.speciesFromNational(263), 12)
+for _, mon in ipairs(session.party) do mon.moves[1], mon.pp[1] = 33, 35 end
+st=State.new({playerParty=session.party,foeParty=foes.party,double=true})
+Battle._st=st
+Ui.reset({headless=true});Ui.bindState(st,session)
+for _,attacker in ipairs({0,2}) do
+ Ui.openMenu(attacker)
+ T.check(Ui.chooseTarget(st,attacker,1),"Emerald doubles opens target selection")
+ display.gen3.syncScreens();refreshBattle()
+ local targets=display.startMenu()
+ T.eq(#targets.items,3,"Emerald selected attack exposes partner and two foes")
+ for index,row in ipairs(display.startMenuModel(targets).entries) do
+  local ownSide=targets.battleTargets[index]%2==0
+  T.eq(row.targetSide,ownSide and "player" or "enemy","Emerald target color follows native side")
+  T.eq(row.right,ownSide and "YOUR SIDE" or "FOE","Emerald target badge identifies own side")
+ end
+ T.check(pcall(display.drawContents),"Emerald target badges render")
+end
 Battle._active,Battle._st=false,nil;Ui.reset({headless=true})
 local rtc=require("src.core.game3.rtc")
 rtc.setFixed("2026-09-29T15:35:00")
@@ -216,4 +222,8 @@ T.eq(display.gen3:gameView().world:hour(),13,"Emerald game clock offset")
 T.eq(display.gen3:gameView().world:minute(),30,"Emerald game clock minutes")
 rtc.reset()
 if _G.KANTO_GEAR_RENDER_CAPTURE then _G.KANTO_GEAR_RENDER_CAPTURE(run,display,raw,maps) end
+if not _G.KANTO_GEAR_RENDER_CAPTURE then
+ assert(loadfile(path .. "/tests/recent_item_gen3_cases.lua"))()(T,run,display,raw)
+end
+assert(loadfile(path .. "/tests/recent_item_cases.lua"))()(T,path)
 T.finish("Emerald runtime")

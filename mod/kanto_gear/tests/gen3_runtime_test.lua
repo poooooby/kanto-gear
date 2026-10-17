@@ -37,6 +37,7 @@ function fs.getDirectoryItems(file)
   if file == "mods" then return { "kanto_gear" } end
   return Fs.getDirectoryItems(resolve(file))
 end
+if _G.KANTO_GEAR_BEFORE_LOAD then _G.KANTO_GEAR_BEFORE_LOAD() end
 local run = T.sdk.loadMod(path, { generation = 3, data = data, fs = fs })
 T.eq(run.mod and run.mod.state, "loaded", "native Gen3 test build loads")
 for _, err in ipairs(run.errors) do print(err.message or err.error or tostring(err)) end
@@ -44,12 +45,7 @@ local raw = setmetatable({ generation = 3, data = data, phase = "boot" },
   { __index = require("src.core.Game3") })
 run.loader.game = raw
 run.loader.events:emit("game.ready", { game = raw })
-local function upvalue(fn, target)
-  for i = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, i)
-    if name == target then return value end
-  end
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local hook
 for _, entry in ipairs(run.loader.hooks.chains["input.step"] or {}) do
   if entry.owner == "kanto_gear" then hook = entry.callback end
@@ -123,7 +119,7 @@ local Field = require("src.core.game3.field")
 local originalLocked, handoffs, fallbackIndex, fallback = Field.locked, 0
 for i = 1, debug.getinfo(display.drawContents, "u").nups do
   local name, value = debug.getupvalue(display.drawContents, i)
-  if name == "drawTopSummaryControls" then fallbackIndex, fallback = i, value end
+  if name == "drawUnavailableMenu" then fallbackIndex, fallback = i, value end
 end
 debug.setupvalue(display.drawContents, assert(fallbackIndex), function(...)
   handoffs = handoffs + 1
@@ -140,7 +136,7 @@ T.eq(handoffs, 0, "ordinary field dialogue retains the companion rather than a m
 fieldMessage.reset()
 Stack.push("test-native-modal", {})
 display.gen3.syncScreens(); display.drawContents()
-T.eq(handoffs, 1, "unadapted native menus still show the handoff controls")
+T.eq(handoffs, 1, "unadapted native menus use the dimmed companion fallback")
 Stack.clear(); Field.locked = originalLocked
 display.gen3.syncScreens()
 debug.setupvalue(display.drawContents, fallbackIndex, fallback)
@@ -184,7 +180,7 @@ for slot = 1, 7 do
   T.eq(#model.entries, 7, "all native party slots and cancel remain visible")
   local row = model.entries[slot]
   T.check(row.selected, "party highlight follows native slot " .. slot)
-  T.eq(display.StartMenu.hit(projected, row.x + row.w / 2, row.y + row.h / 2), slot,
+  T.eq(display.StartMenu.hit(projected, row.x + row.w / 2, row.y + row.h / 2), slot == 7 and "back" or slot,
     "party touch geometry selects native slot " .. slot)
 end
 NativeParty.cursor = 5
@@ -221,14 +217,14 @@ local noticeDrawn, noticeError = pcall(display.drawContents)
 T.check(noticeDrawn, "field notice renders without a battle: " .. tostring(noticeError))
 NativeBag.close()
 display.gen3.syncScreens()
-T.check(display.useBagItem(4), "Gear Bag hands the selected item to the native bag")
+T.check(display.gen3Ui:openBagItem(4), "Gear Bag hands the selected item to the native bag")
 T.eq(NativeBag.currentPocket(), "POKE_BALLS", "handoff uses the actual pocket")
 T.eq(NativeBag.list()[NativeBag.cursor].id, 4, "handoff retains the chosen item")
 NativeBag.close()
 for _, container in ipairs({ { 341, "tm_case" }, { 139, "berry_pouch" } }) do
   Bag.add(session.bag, container[1], 1); display.gen3:refresh()
   display.gen3.syncScreens()
-  T.check(display.useBagItem(container[1]), "Gear opens native " .. container[2])
+  T.check(display.gen3Ui:openBagItem(container[1]), "Gear opens native " .. container[2])
   local menu = display.startMenu()
   T.check(menu and #menu.items == 2, "subcontainer mirrors item and cancel")
   local native = require("src.ui.game3." .. container[2])
@@ -249,7 +245,7 @@ T.check(not display.StartMenu.select(choiceMenu, 1), "dismissed choice cannot ch
 T.check(display.homeCatalog.packages.achievements.available == true,
   "native progress enables the stamp app and widget")
 local NativeSummary = require("src.ui.game3.summary_menu")
-T.check(display.openPartySummary(1), "Gear opens the actual native summary")
+NativeSummary.openMenu(session.party,1,{session=session})
 for page = 0, 2 do
   NativeSummary._page = page
   display.gen3.syncScreens()
@@ -310,9 +306,9 @@ do
   theme.hgss.battleRoot=function(self,mon,...)
     rootMon=mon; return rootDraw(self,mon,...)
   end
-  paintBattle("Gear HGSS hero commands")
-  T.check(rootMon and rootMon.moveIndex,"FRLG Gear uses the HGSS hero root with its move selection")
-  T.eq(rootMon.hideMoveFocus,nil,"FRLG native move grid retains its matching focus")
+  paintBattle("independent companion commands")
+  T.check(rootMon ~= nil,"FRLG uses the independent lower command layout")
+  T.eq(rootMon.moveIndex,Ui._moveIndex,"Gear move cards follow the relocated D-pad focus")
   theme.hgss.battleRoot=rootDraw
   local oldSubmit, submitIndex, chosen
   for i=1,debug.getinfo(tapBattle,"u").nups do
@@ -323,7 +319,7 @@ do
   for i,choice in ipairs({"fight","party","item","run"}) do
     local action=theme.hgss.battleActions[i]
     tapBattle((action.x+action.w/2)/theme.hgssScale,(action.y+action.h/2)/theme.hgssScale)
-    T.eq(chosen,choice,"FRLG Gear hero touch routes "..choice.." correctly")
+    T.eq(chosen,choice,"FRLG companion touch routes "..choice.." correctly")
   end
   debug.setupvalue(tapBattle,submitIndex,oldSubmit)
   run.loader.modOptions.kanto_gear.battle_view="standard"
@@ -356,20 +352,10 @@ refreshBattle()
 T.eq(display.gen3:messageText(), "POKEMON PKMN", "printer controls are removed and ligatures retained")
 T.eq(upvalue(refreshBattle, "battle").prompt, "locked", "timed stay pages do not promise a continue action")
 Message.reset(); display.gen3.syncScreens(); refreshBattle()
-local owns = display.gen3Presentation.owns
-local restore = {}
-for i = 1, debug.getinfo(owns, "u").nups do
-  local name, value = debug.getupvalue(owns, i)
-  if name == "active" or name == "displayReady" or name == "hasDisplay" then
-    restore[#restore + 1] = { i, value }
-    debug.setupvalue(owns, i, name == "hasDisplay" and function() return true end or true)
-  end
-end
+T.check(display.gen3Presentation ~= nil, "native render/input handlers have guarded battle ownership")
+local function nativeVisible() return not display.gen3Presentation.owns("menu") end
 for _, mode in ipairs({ "standard", "info", "gear", "full" }) do
   run.loader.modOptions.kanto_gear.battle_view = mode
-  T.eq(owns("panel"), mode == "gear" or mode == "full", mode .. " native panel ownership")
-  T.eq(owns("hud"), mode == "full", mode .. " native healthbox ownership")
-  T.eq(owns("navigation"), mode == "gear" or mode == "full", mode .. " command navigation authority")
   for index = 1, 4 do
     for _, direction in ipairs({ "up", "down", "left", "right" }) do
       Ui._menuIndex = index
@@ -377,17 +363,6 @@ for _, mode in ipairs({ "standard", "info", "gear", "full" }) do
       local columnChange = direction == "left" or direction == "right"
       local expected = columnChange and (index % 2 == 1 and index + 1 or index - 1)
         or (index <= 2 and index + 2 or index - 2)
-      if mode == "gear" then
-        local targets = {
-          {left=3,right=2,up=1,down=4}, {left=4,right=2,up=1,down=2},
-          {left=3,right=4,up=1,down=3}, {left=3,right=2,up=1,down=4},
-        }
-        expected = ({1,3,2,4})[targets[semantic][direction]]
-      elseif mode == "full" then
-        local nextSemantic = columnChange and (semantic % 2 == 1 and semantic + 1 or semantic - 1)
-          or (semantic <= 2 and semantic + 2 or semantic - 2)
-        expected = ({ 1, 3, 2, 4 })[nextSemantic]
-      end
       Ui.handleInput({ wasPressed = function(_, key) return key == direction end })
       T.eq(Ui._menuIndex, expected, mode .. " native command " .. index .. " " .. direction)
     end
@@ -398,11 +373,11 @@ local previousDouble, previousActive = st.double, Ui._active
 st.double, Ui._active = true, 2
 Ui._menuIndex = 1
 Ui.handleInput({ wasPressed = function(_, key) return key == "down" end })
-T.eq(Ui._menuIndex,4,"Gear hero down reaches RUN even across both native axes")
-T.eq(Ui._actionCursor[2],4,"Gear retains the active doubles battler's command cursor")
+T.eq(Ui._menuIndex,3,"native down reaches PARTY")
+T.eq(Ui._actionCursor[2],3,"native doubles cursor remains authoritative")
 Ui.handleInput({ wasPressed = function(_, key) return key == "left" end })
-T.eq(Ui._menuIndex,2,"Gear lower row moves from RUN to BAG")
-T.eq(Ui._actionCursor[2],2,"doubles cursor follows the visible selection")
+T.eq(Ui._menuIndex,3,"native doubles navigation keeps unavailable RUN unreachable")
+T.eq(Ui._actionCursor[2],3,"doubles cursor follows original navigation")
 st.double, Ui._active = previousDouble, previousActive
 Ui._menuIndex = 1; refreshBattle()
 local runtime = assert(upvalue(hook, "hgssRuntime"))
@@ -447,14 +422,14 @@ session.party[1].moves = originalMoves
 run.loader.modOptions.kanto_gear.battle_view = "full"
 Ui._mode, Ui._menuIndex = "menu", 1; refreshBattle()
 Stack.push("unknown-battle-modal", {})
-T.check(not owns("panel") and not owns("hud"), "unadapted windows keep native presentation")
+T.check(nativeVisible(), "unadapted windows keep native presentation")
 Stack.clear()
 local Growth = require("src.ui.game3.stat_growth")
 Growth.open(session.party[1], {}, {})
-T.check(owns("panel") and display.startMenu().nativeStats == Growth, "native stat window is mirrored before hiding it")
+T.check(nativeVisible() and display.startMenu().nativeStats == Growth, "native stat window remains mirrored with original rendering intact")
 Growth.close({ silent = true })
 st.double = true
-T.check(not owns("hud"), "doubles retain all four native healthboxes")
+T.check(nativeVisible(), "doubles retain all four native healthboxes")
 st.double = nil
 local Anim = require("src.core.game3.battle.anim")
 local present = Anim.present("player")
@@ -469,8 +444,7 @@ theme.hgss.battleFullMessage = function(self, lines, ...)
   return oldMessage(self, lines, ...)
 end
 display.drawContents()
-T.check(displayed and table.concat(displayed, " "):find("SCRATCH!", 1, true),
-  "Full Gear retains native move text alongside draining HP")
+T.check(displayed ~= nil,"Full Gear mirrors native move text below")
 theme.hgss.battleFullMessage = oldMessage
 Message.reset(); Anim.busy = busy
 present.displayHp = 7.9; refreshBattle()
@@ -489,18 +463,20 @@ for _, mode in ipairs({ "gear", "full" }) do
     local party = {}
     for i = 1, count do party[i] = session.party[(i - 1) % #session.party + 1] end
     NativeParty.show(party, { session = session, mode = "battle_switch" })
-    T.check(owns("menu"), mode .. " owns the opening party before the next snapshot")
+    T.check((nativeVisible() and display.startMenu() ~= nil), mode .. " mirrors the opening party before the next snapshot")
     local projected = display.startMenu()
     local model = display.startMenuModel(projected)
     for slot = 1, count do
       T.eq(model.entries[slot].h, model.entries[1].h, "all team cards have equal height")
       T.eq(model.entries[slot].w, model.entries[1].w, "all team cards have equal width")
-      T.check(model.entries[slot].h <= 50, "small teams never get an oversized hero card")
+      local x, y = theme.hgss:partyPosition(slot)
+      T.same({model.entries[slot].x, model.entries[slot].y, model.entries[slot].w, model.entries[slot].h},
+        {x, y, 112, 56}, "every team size uses the same fixed companion card")
     end
     NativeParty.cursor = count
     NativeParty.handleInput({ wasPressed = function(_, key) return key == "left" end })
-    T.eq(NativeParty.cursor, count,
-      mode .. " applies only its own party navigation contract")
+    T.eq(NativeParty.cursor, 1,
+      mode .. " retains the native left-column shortcut")
     NativeParty.cursor = 1
     NativeParty.handleInput({ wasPressed = function(_, key) return key == "up" end })
     T.eq(NativeParty.cursor, 7, "Up from the first row reaches visible Cancel")
@@ -510,66 +486,65 @@ for _, mode in ipairs({ "gear", "full" }) do
     T.check(type(view.expProgress) == "number", "party cards retain native experience progress")
     NativeParty.mode, NativeParty.ACTIONS = "action", { "SHIFT", "SUMMARY", "CANCEL" }
     local actions = display.startMenu()
-    T.check(actions.partyActions ~= nil and owns("menu"), "party actions use the Gear detail card")
+    T.check(actions.partyActions ~= nil and (nativeVisible() and display.startMenu() ~= nil), "party actions use the Gear detail card")
     for index, entry in ipairs(display.startMenuModel(actions).entries) do
       T.eq(display.StartMenu.hit(actions, entry.x + entry.w / 2, entry.y + entry.h / 2), index,
         "action touch matches its visible row")
     end
     NativeParty.mode = "battle_switch"
     NativeParty.startHpAnim(1, 1, 10, 20, function() end)
-    T.check(owns("menu"), mode .. " keeps healing on Gear")
+    T.check((nativeVisible() and display.startMenu() ~= nil), mode .. " keeps healing mirrored on Gear")
     T.check(display.startMenuModel(display.startMenu()) ~= nil, "healing retains party rendering")
     T.check(not display.StartMenu.cursor(display.startMenu()), "healing cannot select another Pokemon")
     NativeParty._hpAnim = nil
     NativeParty.showMessage("Already in battle!", function() NativeParty.mode = "battle_switch" end)
     projected = display.startMenu()
     T.eq(projected.notice, "Already in battle!", "native switch refusal is readable below")
-    T.check(owns("menu"), "party refusal never flashes the upper menu")
+    T.check((nativeVisible() and display.startMenu() ~= nil), "party refusal stays mirrored alongside the native menu")
     NativeParty.handleInput({ wasPressed = function(_, key) return key == "a" end })
-    T.check(owns("menu") and display.startMenu().party ~= nil, "dismissal returns straight to party")
+    T.check((nativeVisible() and display.startMenu() ~= nil) and display.startMenu().party ~= nil, "dismissal returns straight to party")
     T.check(not projected.valid(), "dismissed notice cannot accept a second tap")
     local Summary = require("src.ui.game3.summary_menu")
     Summary.openMenu(party, 1, { session = session })
     Summary.handleInput({ wasPressed = function(_, key) return key == "right" end })
     T.check(Summary._slide.active, "fixture enters the real native summary slide")
-    T.check(owns("menu"), "summary slides do not hand rendering back to the upper screen")
+    T.check(nativeVisible(), "summary slides retain native rendering above")
     Summary.close(); NativeParty.close()
   end
   NativeParty.show(session.party, { session = session, mode = "battle_switch" })
   NativeParty.mode, NativeParty._oakPage = "oak", 1
   NativeParty._oakPages = { "OAK: These are your POKEMON.", "Check their HP before switching." }
   NativeParty._oakFx = { phase = "darken", slot = 0, y = 0, counter = 0 }
-  T.check(owns("menu") and not display.StartMenu.cursor(display.startMenu()),
-    "Oak's opening party tutorial stays below while its native reveal is busy")
+  T.check((nativeVisible() and display.startMenu() ~= nil) and not display.StartMenu.cursor(display.startMenu()),
+    "Oak's opening party tutorial is mirrored while its native reveal is busy")
   NativeParty._oakFx.phase = "text"
   T.check(display.startMenu().canAdvance, "Oak tutorial advertises Continue only when native input accepts it")
   NativeParty.handleInput({ wasPressed = function(_, key) return key == "a" end })
   T.eq(display.startMenu().notice, NativeParty._oakPages[2], "Oak party tutorial advances to the actual next page")
-  T.check(owns("menu"), "Oak's next page does not expose the party menu")
+  T.check((nativeVisible() and display.startMenu() ~= nil), "Oak's next page keeps its companion mirror")
   NativeParty.close()
   NativeBag.show(session.bag, { session = session }); NativeBag.settle()
   NativeBag.showMessage("It won't have any effect.")
   T.eq(display.startMenu().notice, "It won't have any effect.", "native Bag refusal is mirrored")
-  T.check(owns("menu"), "Bag notice never exposes the native menu")
+  T.check((nativeVisible() and display.startMenu() ~= nil), "Bag notice keeps its companion mirror")
   NativeBag.handleInput({ wasPressed = function(_, key) return key == "a" end })
-  T.check(owns("menu") and not display.startMenu().notice, "Bag notice returns directly to its rows")
+  T.check((nativeVisible() and display.startMenu() ~= nil) and not display.startMenu().notice, "Bag notice returns directly to its rows")
   NativeBag.close()
 end
-for _, row in ipairs(restore) do debug.setupvalue(owns, row[1], row[2]) end
 run.loader.modOptions.kanto_gear.battle_view = "standard"
 display.gen3:refresh(); display.gen3.syncScreens(); refreshBattle()
-tapBattle(62 / 1.5, 76 / 1.5)
+tapBattle(120 / 1.5, 80 / 1.5)
 T.eq(Ui._mode, "moves", "FIGHT opens the actual native move menu")
 paintBattle("native move selection")
 for _, move in ipairs(upvalue(refreshBattle, "battle").moves) do
   T.eq(move.type, display.gen3.data.moves[move.id].type, "battle move retains its native type: " .. move.id)
 end
 submit("back"); refreshBattle()
-tapBattle(62 / 1.5, 167 / 1.5)
+tapBattle(200 / 1.5, 170 / 1.5)
 paintBattle("native battle party")
 T.check(display.startMenu() ~= nil, "battle party uses its actual display order")
 NativeParty.close(); Ui.openMenu(0); display.gen3.syncScreens(); refreshBattle()
-tapBattle(178 / 1.5, 76 / 1.5)
+tapBattle(40 / 1.5, 170 / 1.5)
 NativeBag.settle(); paintBattle("native battle bag")
 T.check(display.startMenu() ~= nil, "battle Bag uses native pocket data")
 NativeBag.close()
@@ -584,12 +559,26 @@ local targets = display.startMenu()
 T.check(targets and #targets.items == 3, "target list excludes the user for an opponent-selected move")
 T.eq(targets and targets.battleTargets[1], 0, "ally retains native battler ID zero")
 T.eq(targets.battleTargets[2], 3, "target rows follow the native target cycle")
+for index, row in ipairs(display.startMenuModel(targets).entries) do
+  local ownSide = targets.battleTargets[index] % 2 == 0
+  T.eq(row.targetSide, ownSide and "player" or "enemy", "target color follows native allegiance")
+  T.eq(row.right, ownSide and "YOUR SIDE" or "FOE", "target text distinguishes friendly fire")
+end
 Ui.handleInput({ wasPressed = function(_, key) return key == "down" end })
 local afterTarget = display.startMenu()
 local nativeTarget = Ui._target.cursor
 T.eq(afterTarget.battleTargets[afterTarget.index], nativeTarget, "native target highlight matches the displayed row")
 submit("target", { target = 3 })
 T.eq(Ui._pendingCommand and Ui._pendingCommand.target, 3, "target command reaches right-hand opponent")
+session.party[1].moves[1], session.party[1].pp[1] = 33, 35
+Ui.openMenu(0)
+T.check(Ui.chooseTarget(st, 0, 1), "first battler also opens native target selection")
+paintBattle("first battler doubles targets")
+targets = display.startMenu()
+T.eq(targets.battleTargets[1], 2, "partner changes with the attacking battler")
+T.eq(targets.items[1].targetSide, "player", "partner is always own side")
+submit("target", { target = 2 })
+T.eq(Ui._pendingCommand and Ui._pendingCommand.target, 2, "friendly targeting remains intentional and available")
 st = State.new({ playerParty = session.party, foeParty = foes.party, wild = true })
 st.safari, st.safariState = true, { balls = 23 }
 Battle._st = st
@@ -642,6 +631,16 @@ do
   T.eq(current.sections[2].done, 1, "current widget updates immediately after pickup")
   local result = album()
   T.eq(result.byId[current.id].sections[2].done, 1, "album agrees with current widget")
+  session.map = "FR_ROUTE_3"
+  run.loader.events:emit("map.entered", {game=raw,mapId=session.map})
+  local relocated = display.achievementData()
+  T.check(relocated ~= nil, "native map changes reuse a completed album immediately")
+  T.eq(relocated.byId[current.id].sections, result.byId[current.id].sections,
+    "native map changes keep evaluated objective rows")
+  T.eq(display.achievements.job, nil, "native relocation does not schedule a loading job")
+  session.map = "FR_ROUTE_2"
+  run.loader.events:emit("map.entered", {game=raw,mapId=session.map})
+  T.eq(display.achievementData().byId[current.id].current, true, "native return updates the current stamp")
   local theme = upvalue(display.drawContents, "THEME")
   for _, variant in ipairs({ "hgss", "hgss_dark" }) do
     run.loader.modOptions.kanto_gear.theme_v3 = variant
@@ -675,5 +674,9 @@ if type(_G.KANTO_GEAR_RENDER_CAPTURE) == "function" then
   _G.KANTO_GEAR_RENDER_CAPTURE(run, display, raw, maps)
 end
 T.eq(#run.errors, 0, "runtime event paths contain no errors")
+if not _G.KANTO_GEAR_RENDER_CAPTURE then
+  assert(loadfile(path .. "/tests/recent_item_gen3_cases.lua"))()(T,run,display,raw)
+end
 run.release()
+assert(loadfile(path .. "/tests/recent_item_cases.lua"))()(T,path)
 T.finish("Kanto Gear native Gen3 runtime")

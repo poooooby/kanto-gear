@@ -1,11 +1,5 @@
 return function(T, run, display, raw)
-  local function value(fn, key)
-    for i=1,debug.getinfo(fn,"u").nups do
-      local name,v=debug.getupvalue(fn,i)
-      if name==key then return v end
-    end
-    error("missing upvalue "..key)
-  end
+  local value = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
   local function hook(name)
     for _,e in ipairs(run.loader.hooks.chains[name] or {}) do
       if e.owner=="kanto_gear" then return e.callback end
@@ -46,14 +40,15 @@ return function(T, run, display, raw)
       local x,y=theme.hgss:partyPosition(1)
       click(x+35,y+25)
       T.eq(value(tap,"partyActionSlot"),1,source.." reaches Party through real FRLG handlers in "..layout)
-      local api=value(display.openPartySummary,"mod")
-      local count=api.world:canReorderParty() and 2 or 1
+      local count=#display.partyActionRows(1)
       local ax,ay,aw,ah=theme.hgss:partyActionRow(1,count)
       click(ax+aw/2,ay+ah/2)
       display.gen3.syncScreens()
-      T.eq(display.gen3:gameView().stack:top().screenId,"Gen3SummaryMenu",
-        source.." opens Stats in "..layout.." without bypassing the pointer path")
-      require("src.ui.game3.summary_menu").close();display.gen3.syncScreens()
+      local inspected=display.summaryContext()
+      T.eq(inspected and inspected.screenId,"GearSummaryMenu",
+        source.." opens companion Stats in "..layout.." through the pointer path")
+      T.check(not require("src.ui.game3.summary_menu").open,"pointer inspection leaves native game menu closed")
+      display.summaryInput(inspected,"b");display.gen3.syncScreens()
     end
   end
   love.timer.getTime=oldTime

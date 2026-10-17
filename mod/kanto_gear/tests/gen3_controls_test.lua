@@ -8,6 +8,15 @@ _G.KANTO_GEAR_RENDER_CAPTURE = function(run, display, raw, maps)
     return { wasPressed = function(_, k) return key == k end, isDown = function() return false end }
   end
   local function menu()
+    local layer = Stack.top()
+    if layer and layer.id == "box_storage" then
+      local frames = 0
+      while layer.mod.isPresentationBusy() and frames < 240 do
+        layer.mod.update(1 / 60)
+        frames = frames + 1
+      end
+      T.check(not layer.mod.isPresentationBusy(), "native storage transition finishes before the next gesture")
+    end
     local m = display.startMenu()
     T.check(m and display.StartMenu.cursor(m, true), "native menu has valid mirrored cursor")
     if m then
@@ -100,13 +109,22 @@ _G.KANTO_GEAR_RENDER_CAPTURE = function(run, display, raw, maps)
   local savedBox, savedCurrent = session.storage.boxes[1].mons, session.storage.currentBox
   session.storage.boxes[1].mons, session.storage.currentBox = { [8] = mon }, 1
   Box.show({ session = session, subMode = "move" })
+  local opening = assert(display.startMenu())
+  T.check(Box.isPresentationBusy(), "native storage starts with its opening animation")
+  T.check(not display.StartMenu.select(opening, 11), "storage rejects touches during its opening animation")
   m = menu(); T.eq(#m.items, 33, "box keeps all thirty slots, party, close and title")
   for i,entry in ipairs(m.items) do
     local r=entry.rect
-    T.eq(display.StartMenu.hit(m,r[1]+r[3]/2,r[2]+r[4]/2),i,"box touch targets retain exact empty and occupied slots")
+    local expected = not entry.inert and i or nil
+    T.eq(display.StartMenu.hit(m,r[1]+r[3]/2,r[2]+r[4]/2),expected,"only active native box targets accept touch")
+    if entry.inert then T.check(not display.StartMenu.select(m,i),"empty browsing cells cannot send a native action") end
   end
   display.StartMenu.select(m, 11); T.eq(Box.cursorSlot, 8, "sparse box slot is not compacted")
   Box.handleInput(input("a")); m = menu()
+  T.eq(m.partyActions,display.gen3:mon(mon),"box action hero identifies the actual selected partner")
+  for index,entry in ipairs(m.items) do
+    T.same(entry.rect,{display.gen3Ui.layout:partyActionRow(index,#m.items)},"all storage actions share common hero controls")
+  end
   display.StartMenu.select(m, 1); Box.handleInput(input("a"))
   T.eq(Box.holdingMon, mon, "native move picks up original mon")
   m = menu(); display.StartMenu.select(m, 20); Box.handleInput(input("a"))
@@ -114,8 +132,37 @@ _G.KANTO_GEAR_RENDER_CAPTURE = function(run, display, raw, maps)
   T.eq(session.storage.boxes[1].mons[8], nil, "native move clears source once")
   m = menu(); display.StartMenu.select(m, 1); Box.handleInput(input("a"))
   m = menu(); T.eq(#m.items, 7, "party drawer retains six slots and cancel")
+  for slot=1,6 do
+    local x,y=display.gen3Ui.layout:partyPosition(slot)
+    T.same(m.items[slot].rect,{x,y,112,56},"PC drawer shares fixed team card "..slot)
+    local expected=session.party[slot] and slot or nil
+    T.eq(display.StartMenu.hit(m,x+56,y+28),expected,"empty PC team slots stay inactive without a held partner")
+    if not expected then T.check(not display.StartMenu.select(m,slot),"inactive PC slot cannot queue native input") end
+  end
+  T.eq(display.StartMenu.hit(m,12,12),"back","PC drawer uses the same header Back control")
   display.StartMenu.select(m, 7); Box.handleInput(input("a"))
   T.eq(Box.mode, "browse", "party cancellation returns to box")
+  -- The actual host still owns a box-to-party move through a common empty card.
+  local scratch=require("src.core.game3.save_schema_firered").newGame({version=os.getenv("POKEPORT_VERSION"),name="TEST",rngSeed=481})
+  local P=require("src.core.game3.pokemon")
+  require("src.core.game3.party").giveMon(scratch,P.speciesFromNational(25),10)
+  local incoming=scratch.party[1]
+  local count=#session.party
+  session.storage.boxes[1].mons[17]=incoming
+  m=menu();display.StartMenu.select(m,20);Box.handleInput(input("a"))
+  m=menu();display.StartMenu.select(m,1);Box.handleInput(input("a"))
+  T.eq(Box.holdingMon,incoming,"native pickup supplies the real incoming partner")
+  m=menu();display.StartMenu.select(m,1);Box.handleInput(input("a"))
+  m=menu();T.check(m.emptyTargets,"holding a boxed partner enables the empty cards")
+  local rect=m.items[count+1].rect
+  T.eq(display.StartMenu.hit(m,rect[1]+56,rect[2]+28),count+1,"the next empty card is a native move target")
+  T.check(display.StartMenu.select(m,count+1),"touch can select the actual empty party slot")
+  Box.handleInput(input("a"))
+  T.eq(session.party[count+1],incoming,"native placement fills the intended common team slot")
+  T.eq(#session.party,count+1,"native placement adds exactly one partner")
+  T.eq(session.storage.boxes[1].mons[17],nil,"native pickup clears the original box slot")
+  T.eq(Box.holdingMon,nil,"native placement finishes holding the partner")
+  session.party[count+1]=nil
   Box.close()
   session.storage.boxes[1].mons, session.storage.currentBox = savedBox, savedCurrent
 

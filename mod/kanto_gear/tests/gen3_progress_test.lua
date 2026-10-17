@@ -16,18 +16,64 @@ local raw = { generation = 3, phase = "field", session = session, data = {
 raw.save = Schema.toSaveTable(session)
 require("src.core.game3.runtime").session = session
 require("src.mods.Gen3Compat").bind(function() return raw end)
-local adapter = dofile(root .. "/gen3.lua").new(raw)
+local adapter = assert(loadfile(root .. "/tests/support/module.lua"))()(root, "adapters/gen3/init").new(raw)
 local Space, Flags = adapter.Space, adapter.Flags
 Space.bundle = { scripts = dofile(cacheRoot .. "/scripts/scripts.lua"), events = dofile(cacheRoot .. "/scripts/events.lua"),
   text = dofile(cacheRoot .. "/scripts/text.lua") }
 Space.active = false
-local Model = dofile(root .. "/gen3_progress.lua")
+local Model = assert(loadfile(root .. "/tests/support/module.lua"))()(root, "adapters/gen3/progress")
 local model = Model.new(adapter)
-local Progress = dofile(root .. "/achievements.lua")
+local Progress = dofile(root .. "/features/achievements.lua")
 local Json = require("src.import.canonical_json")
 local before = Json.encode(Schema.toSaveTable(session))
 local checks = 0
 local function check(ok, why) assert(ok, why); checks = checks + 1 end
+-- Custom scripts must not attach an unrelated story flag to an NPC reward.
+local function giftScript(item, event)
+  return { main = {
+    { op = "checkflag", flag = event }, { op = "goto_if", cond = 1, target = "done" },
+    { op = "setorcopyvar", [1] = 0x8000, [2] = item },
+    { op = "callstd", std = 0 }, { op = "setflag", flag = event }, { op = "end" } },
+    done = { { op = "end" } } }
+end
+local function gifts(scripts, hidden)
+  return Model.gifts(scripts, "main", Model.scan(scripts, "main"), hidden or {})
+end
+local probe = giftScript(13, 700)
+check(#gifts(probe) == 1 and gifts(probe)[1].itemId == 13 and gifts(probe)[1].event == 700,
+  "item and completion proof follow the same one-time branch")
+check(#gifts(probe, {[700] = true}) == 0, "initial object hiding is not gift proof")
+probe.main[5].flag = 701
+check(#gifts(probe) == 0, "checked and written flags must match")
+probe = giftScript(13, 700)
+probe.reward = {probe.main[3],probe.main[4],probe.main[5],probe.main[6]}
+probe.main = {probe.main[1], {op="goto_if",cond=1,target="reward"}, {op="goto",target="reward"}}
+check(#gifts(probe) == 0, "an already-set flag cannot lead to the reward")
+probe = giftScript(13, 3)
+check(#gifts(probe) == 0, "temporary flags never become permanent gift goals")
+probe = giftScript(13, 700); table.insert(probe.main, 1, {op="clearflag",flag=700})
+check(#gifts(probe) == 0, "resetting a receipt flag cannot produce a permanent goal")
+probe = giftScript(13, 700); probe.main[3][2] = 0x8004
+check(#gifts(probe) == 0, "unknown variable items are not guessed from other branches")
+probe = giftScript(13, 700); probe.main[4] = {op="callstd",std=1}
+check(#gifts(probe) == 0, "ground pickups are not duplicated as gifts")
+probe = giftScript(13, 700); probe.main[4] = {op="call",target="reward"}
+probe.reward = { {op="additem",[1]=13}, {op="return"} }
+check(#gifts(probe) == 1, "receipt flag after a returning helper proves its gift")
+probe.reward[2].op = "end"
+check(#gifts(probe) == 0, "an ending helper cannot reach the caller's receipt flag")
+probe = giftScript(13, 700); probe.main[4] = {op="goto",target="main"}
+check(#gifts(probe) == 0, "cyclic script without a reachable reward terminates safely")
+probe = giftScript(13, 700); table.insert(probe.main, 4, {op="call",target="opaque"})
+probe.opaque = {{op="unknown",opaque=true}}
+check(#gifts(probe) == 0, "opaque helpers cannot be used to prove receipt")
+probe = giftScript(13,700); probe.main[4]={op="call",target="reward"}
+probe.reward={{op="call",target="reward"},{op="additem",[1]=13},{op="return"}}
+check(#gifts(probe)==0,"recursive reward helper has a bounded analysis and cannot invent completion")
+probe=giftScript(13,700)
+table.insert(probe.main,1,{op="checkflag",flag="CUSTOM_STORY"})
+table.insert(probe.main,2,{op="setflag",flag="CUSTOM_STORY"})
+check(#gifts(probe)==1,"custom symbolic story flags do not break numeric receipt proofs")
 local function rows(id, category) return model:rows({ id })[category] end
 local function find(list, pred) for _, row in ipairs(list) do if pred(row) then return row end end end
 local function flag(id, value) Flags.setFlag(session, nil, id, value ~= false) end
@@ -46,6 +92,10 @@ for id in pairs(raw.data.maps) do
     totals[category] = totals[category] + #catalog[category]
     for _, row in ipairs(catalog[category]) do
       if row.untracked then unknown[#unknown + 1] = id .. ":" .. tostring(row.index) .. ":" .. tostring(row.label) end
+      if category == 1 and row.index then
+        local obj = find(Space.bundle.events[id].objects or {}, function(obj) return obj.localId == row.index end)
+        check(obj ~= nil and row.graphicsId == (obj.graphicsId or obj.graphics), "trainer carries native object graphics in " .. id)
+      end
       if category ~= 1 or not row.untracked then
         check(not row.itemId or adapter.data.items[row.itemId] ~= nil, "valid item in " .. id)
         check(not row.species or adapter.data.pokemon[row.species] ~= nil, "valid species in " .. id)
@@ -68,6 +118,15 @@ if os.getenv("KANTO_GEAR_PROGRESS_REPORT") then
 end
 check(Json.encode(Schema.toSaveTable(session)) == before, "catalogue does not mutate session")
 check(#unknown == 0, "all imported objectives classified")
+local giftsCount = 0
+for _, catalog in pairs(model.maps) do
+  for _, row in ipairs(catalog[2]) do if row.gift then giftsCount = giftsCount + 1 end end
+end
+check(giftsCount == 32, "all 32 provable native one-time NPC item gifts catalogued")
+check(find(rows("FR_ROUTE_1", 2), function(r) return r.gift and r.itemId == 13 and r.event == 560 end),
+  "Route 1 shop employee's Potion is an NPC objective")
+check(not find(rows("FR_ROUTE_12_FISHING_HOUSE", 2), function(r) return r.gift and r.itemId == 6 end),
+  "repeatable Magikarp-size reward does not inherit the Super Rod receipt flag")
 local builds = model.builds
 for id in pairs(raw.data.maps) do model:rows({ id }); model:pokemon({ id }) end
 check(model.builds == builds, "warm reads never traverse scripts again")
@@ -121,6 +180,14 @@ flag(Flags.trainerFlagId(142), false)
 check(#rows("FR_ROUTE_22", 1) == 2, "early and late rivals are separate; starter variants are not")
 check(find(rows("FR_ROUTE_22", 1), function(r) return r.optional end) ~= nil, "one-shot early rival optional")
 check(#rows("FR_OAKS_LAB", 1) == 1 and rows("FR_OAKS_LAB", 1)[1].optional, "tutorial rival optional once")
+local silphBoss, silphGuard = false, false
+for _, row in ipairs(rows("FR_SILPH_CO_11F", 1)) do
+  if row.required then
+    silphBoss = true
+    check(not row.missable, "mandatory Silph boss remains required")
+  elseif row.missable then silphGuard = true end
+end
+check(silphBoss and silphGuard, "native Silph boss and missable guards are distinguished")
 check(#rows("FR_POKEMON_LEAGUE_CHAMPIONS_ROOM", 1) == 1, "champion variants/rematch share one objective")
 flag("FLAG_SYS_GAME_CLEAR")
 check(rows("FR_POKEMON_LEAGUE_CHAMPIONS_ROOM", 1)[1].done, "past champion win survives native rematch reset")
@@ -128,10 +195,12 @@ flag("FLAG_SYS_GAME_CLEAR", false)
 
 local fossil = rows("FR_MT_MOON_B2F", 2)
 check(#fossil == 6, "four item balls plus both fossil choices")
+check(stamp({ "FR_MT_MOON_B2F" }).sections[2].total == 5, "four pickups and one fossil choice before selection")
 flag(626)
 fossil = rows("FR_MT_MOON_B2F", 2)
 check(find(fossil, function(r) return r.itemId == 358 end).done, "chosen dome fossil complete")
 check(find(fossil, function(r) return r.itemId == 357 end).excluded, "unchosen helix is excluded")
+check(stamp({ "FR_MT_MOON_B2F" }).sections[2].total == 5, "fossil denominator is stable after selection")
 flag(626, false)
 for _, row in ipairs(rows("FR_ROCKET_HIDEOUT_B4F", 2)) do
   if row.ownedKey then check(not row.done, "initially hidden key item not falsely collected") end
@@ -225,7 +294,9 @@ check(groupOf.FR_VIRIDIAN_FOREST.kind == "forest", "forest has its own stamp kin
 local gym = "FR_PEWTER_CITY_GYM"
 check(stamp({ gym }).tier == "bronze", "unbeaten visited gym bronze")
 for _, r in ipairs(rows(gym, 1)) do for fid in pairs(r.flags) do flag(fid) end end
-check(stamp({ gym }).tier == "gold", "all required gym trainers give gold")
+check(stamp({ gym }).tier == "bronze", "defeating trainers alone does not collect the leader's TM")
+for _, r in ipairs(rows(gym, 2)) do if r.gift then flag(r.event) end end
+check(stamp({ gym }).tier == "gold", "gym trainers and received leader TM give gold")
 local saved = Schema.toSaveTable(session)
 raw.session = Schema.newGame({ version = edition, name = "NEW", rngSeed = 7 })
 adapter:refresh()
@@ -235,10 +306,17 @@ adapter:refresh()
 check(stamp({ gym }).tier == "gold", "serialized progress restores gold")
 raw.session = session; adapter:refresh()
 local route = "FR_ROUTE_1"
+check(stamp({ route }).tier == "bronze", "unreceived NPC gift blocks field completion")
+flag(560)
 check(stamp({ route }).tier == "silver", "no field goals but missing species gives silver")
 for _, r in ipairs(model:pokemon({ route })) do require("src.core.game3.dex").setCaught(session.dex, r.species) end
 adapter:refresh()
 check(stamp({ route }).tier == "gold", "global dex completes all route species")
+require("src.core.game3.bag").set(session.bag, 13, 0)
+check(stamp({ route }).tier == "gold", "using a gift does not undo its receipt flag")
+flag(560, false)
+check(stamp({ route }).tier == "bronze", "older save restores an unreceived gift even with a complete local dex")
+flag(560)
 local savedBundle = Space.bundle
 Space.bundle = nil
 check(stamp({ "FR_ROUTE_1" }).untracked > 0, "missing bundle cannot produce a gold stamp")

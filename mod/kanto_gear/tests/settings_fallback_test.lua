@@ -42,12 +42,7 @@ local function gameFor(run)
   }
 end
 
-local function upvalue(fn, target)
-  for index = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, index)
-    if name == target then return value end
-  end
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 
 local function runtime(run)
   local inputHook
@@ -68,10 +63,10 @@ local function rowFor(key)
     if row.key == key then return row end
   end
 end
-T.eq(rowFor("theme_v3").value, "HGSS LIGHT", "the fallback reads the 3.0 default")
+T.eq(rowFor("theme_v3").value, "POKEGEAR LIGHT", "the fallback reads the 3.0 default")
 T.eq(rowFor("theme_v3").enabled, true, "touch settings stay enabled without host setter")
 T.check(display.cycleSetting(rowFor("theme_v3"), 1), "touch can change the theme")
-T.eq(rowFor("theme_v3").value, "HGSS DARK",
+T.eq(rowFor("theme_v3").value, "POKEGEAR DARK",
   "the changed theme is visible immediately")
 local api = upvalue(display.saveHome, "mod")
 T.eq(api.cache:read("options/theme_v3"), "shgss_dark",
@@ -92,7 +87,7 @@ run.loader.events:emit("mod.options_changed",
   { mod = "kanto_gear", key = "theme_v3", value = "hgss" })
 T.eq(api.options:get("theme_v3"), "hgss",
   "the native mod menu replaces a cached touch setting")
-T.eq(rowFor("theme_v3").value, "HGSS LIGHT",
+T.eq(rowFor("theme_v3").value, "POKEGEAR LIGHT",
   "the touch menu immediately follows the native mod menu")
 T.eq(api.cache:read("options/theme_v3"), "shgss",
   "the synchronized native value survives the next restart")
@@ -121,7 +116,7 @@ T.eq(api.cache:read("options/clock_format"), "s24",
 
 -- Audit all dynamic metadata, not only the currently visible settings page.
 local theme = upvalue(display.drawContents, "THEME")
-for _, language in ipairs({ "de", "es", "fr" }) do
+for _, language in ipairs({ "de", "es", "fr", "it" }) do
   api.options:set("language", language)
   for _, row in ipairs(run.loader.optionSchemas.kanto_gear) do
     theme:translate(row.label)
@@ -144,6 +139,7 @@ for _, language in ipairs({ "de", "es", "fr" }) do
   T.eq(#missing, 0, language .. " runtime metadata covered: " .. table.concat(missing, "; "))
 end
 
+api.options:set("language", "fr")
 T.check(display.cycleSetting(rowFor("language"), 1), "touch selects Japanese after French")
 T.eq(api.options:get("language"), "ja", "Japanese uses the standard locale code")
 T.eq(api.cache:read("options/language"), "sja", "Japanese selection persists")
@@ -151,6 +147,8 @@ T.eq(theme:translate("JAPANESE"), "にほんご", "Japanese language label rende
 T.eq(theme:translate("NOTES"), "ノート", "new Japanese translations render immediately")
 T.eq(theme:translate("UNTRANSLATED TEST LABEL"), "UNTRANSLATED TEST LABEL", "unknown Japanese entries fall back to English")
 
+T.eq(api.options:get("type_hints"), true, "old Enhanced choice starts with type hints")
+T.check(api.options:set("info_level", "purist"), "discovery changes independently before restart")
 run.release()
 local restarted = loadWithoutNativeSetter(persistedCache)
 restarted.loader.events:emit("game.ready", { game = gameFor(restarted) })
@@ -158,11 +156,53 @@ local restartedTheme = upvalue(runtime(restarted).drawContents, "THEME")
 local restartedApi = upvalue(runtime(restarted).saveHome, "mod")
 T.eq(restartedApi.options:get("ui_haptics"), true, "haptics survive a new mod instance")
 T.eq(restartedApi.options:get("keyboard_layout"), "qwertz", "keyboard layout survives restarting")
+T.eq(restartedApi.options:get("info_level"), "purist", "discovery choice survives restarting")
+T.eq(restartedApi.options:get("type_hints"), false, "strict Vanilla disables battle hints across restart")
 T.eq(restartedTheme.i18n:language(), "ja", "Japanese survives loading a new mod instance")
 T.eq(restartedTheme:translate("JAPANESE"), "にほんご", "new instance immediately renders the saved language")
 T.eq(restartedTheme:translate("NOTES"), "ノート", "new Japanese translations survive restarting")
 T.eq(restartedTheme:translate("UNTRANSLATED TEST LABEL"), "UNTRANSLATED TEST LABEL", "English fallback survives restarting")
 T.check(restartedApi.options:set("language", "de"), "Japanese can be switched back to German")
 T.eq(restartedTheme:translate("JAPANESE"), "JAPANISCH", "language switch clears Japanese rendering")
+T.check(restartedApi.options:set("language", "it"), "Italian can be selected in the native options")
+T.eq(restartedTheme:translate("ABILITY"), "ABILITÀ", "Italian accents render immediately")
+T.eq(restartedApi.cache:read("options/language"), "sit", "Italian selection is persisted")
+restarted.release()
+local italianRestart = loadWithoutNativeSetter(persistedCache)
+italianRestart.loader.events:emit("game.ready", { game = gameFor(italianRestart) })
+local italianDisplay = runtime(italianRestart)
+local italianTheme = upvalue(italianDisplay.drawContents, "THEME")
+T.eq(italianTheme.i18n:language(), "it", "Italian survives a new mod instance")
+T.eq(italianTheme:translate("HP"), "PS", "restarted Italian UI uses the Italian catalog")
+italianRestart.release()
+
+for _, case in ipairs({
+  { cache = { ["options/info_level"] = "senhanced", ["options/type_hints"] = "b0" },
+      mode = "custom", hint = false, map = true },
+  { cache = { ["options/profile"] = "spurist" }, mode = "purist", hint = false },
+  { cache = { ["options/info_level"] = "slegacy", ["options/local_map"] = "senhanced",
+      ["options/type_hints"] = "b1" }, mode = "spoiler", hint = true },
+  { cache = { ["options/info_level"] = "slegacy", ["options/local_map"] = "b1" },
+      mode = "purist", hint = false },
+  { cache = { ["options/profile"] = "scustom", ["options/local_map"] = "senhanced" },
+      mode = "spoiler", hint = true },
+}) do
+  local legacy = loadWithoutNativeSetter(case.cache)
+  legacy.loader.events:emit("game.ready", { game = gameFor(legacy) })
+  local migrated = upvalue(runtime(legacy).saveHome, "mod")
+  T.eq(migrated.options:get("info_level"), case.mode, "old custom/purist mode has one documented replacement")
+  T.eq(migrated.options:get("type_hints"), case.hint, "old helper preference survives migration independently")
+  if case.map then T.eq(runtime(legacy).discoveryPolicy().area_map, true, "migration preserves the former Guide map") end
+  if case.cache["options/local_map"] then
+    T.eq(migrated.options:get("local_map"), true, "old map toggle no longer carries a hidden spoiler override")
+  end
+  legacy.release()
+  local again = loadWithoutNativeSetter(case.cache)
+  local reloaded = upvalue(runtime(again).saveHome, "mod")
+  T.eq(reloaded.options:get("info_level"), case.mode, "migrated discovery survives normalizing the old map setting")
+  T.eq(reloaded.options:get("type_hints"), case.hint, "independent battle preference survives restart")
+  if case.map then T.eq(runtime(again).discoveryPolicy().area_map, true, "migrated Custom map survives restart") end
+  again.release()
+end
 
 T.finish("Kanto Gear settings fallback")

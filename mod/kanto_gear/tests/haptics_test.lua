@@ -20,16 +20,7 @@ local run = T.sdk.loadMod(assert(os.getenv("KANTO_GEAR_MOD_PATH")), {
 })
 Loader._api = nativeApi
 T.eq(run.mod.state, "loaded", "complete mod loads with haptics")
-local function upvalue(fn, target, replacement, set)
-  for index = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, index)
-    if name == target then
-      if set then debug.setupvalue(fn, index, replacement) end
-      return value
-    end
-  end
-  error("missing upvalue " .. target)
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local function hook(name)
   for _, entry in ipairs(run.loader.hooks.chains[name] or {}) do
     if entry.owner == "kanto_gear" then return entry.callback end
@@ -63,6 +54,8 @@ local function homePage()
     { id = "map_app", page = 1, column = 1, row = 1 },
     { id = "store_app", page = 1, column = 4, row = 1 },
   } }
+  display.syncTouchGuard()
+  now = now + 0.3 -- A real pause after changing screens clears the tap burst guard.
 end
 local function coords(id)
   for _, tile in ipairs(display.homePageElements()) do
@@ -85,7 +78,11 @@ local schema = display.optionRow("ui_haptics")
 T.eq(schema.default, false, "native mod option explicitly defaults OFF")
 display.openHomeApp("settings")
 display.settings.category = 5
-local row = display.settingsModel().rows[2]
+local row
+for _, candidate in ipairs(display.settingsModel().rows) do
+  if candidate.key == "ui_haptics" then row = candidate break end
+end
+assert(row, "Controls has a haptics setting")
 T.eq(row.key, "ui_haptics", "touch Controls exposes the same setting")
 T.check(display.cycleSetting(row, 1), "touch enables the option")
 T.eq(api.options:get("ui_haptics"), true, "touch option takes effect immediately")
@@ -192,8 +189,9 @@ display.activateStoreEntry(display.storeEntry(display.storeById.bag))
 T.eq(#pulses, 8, "successful Store installation confirms once")
 T.eq(pulses[8], 0.020, "Store installation uses the confirmation cue")
 now = now + 1
-display.home.storeDetail = "bag"
-display.tapStore(180, 65)
+display.home.storeView, display.home.storeGearSel = "library", "bag"
+display.tapStore(196, 190)
+display.tapStore(60, 188)
 T.eq(#pulses, 9, "successful Store removal confirms once")
 T.eq(pulses[9], 0.020, "Store removal uses the confirmation cue")
 now = now + 1
@@ -247,7 +245,7 @@ game.save.inventory.ITEMFINDER = 0
 scan(0, "no Itemfinder means no success feedback")
 game.save.inventory.ITEMFINDER = 1
 api.options:set("info_level", "purist")
-scan(0, "Vanilla does not reveal signals through vibration")
+scan(0, "Strict Vanilla disables Gear map scans even with an Itemfinder")
 api.options:set("info_level", "spoiler")
 scan(0, "Spoiler has no active scanner feedback")
 api.options:set("info_level", "enhanced")

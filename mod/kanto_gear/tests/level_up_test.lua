@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 local T = require("tests.modkit")
 local path = assert(os.getenv("KANTO_GEAR_MOD_PATH"))
-local LevelUp = assert(loadfile(path .. "/level_up.lua"))()
+local LevelUp = assert(loadfile(path .. "/core/level_up.lua"))()
 local tracker = LevelUp.new()
 local mon = { species = "FIXMON_A", level = 5, hp = 1,
   stats = { hp = 20, attack = 10, defense = 9, speed = 8, special = 12 } }
@@ -21,6 +21,17 @@ mon.level = 6
 mon.stats.hp, mon.stats.attack, mon.stats.defense = 23, 13, 9
 tracker:scan(save)
 local gain = tracker:get(mon)
+local view = LevelUp.model(mon, { pokemon = {} }, gain)
+T.eq(#view.rows, 5, "Gen 1 retains its combined Special stat")
+T.eq(view.rows[1].value, 23, "common presentation uses maximum HP, not damaged HP")
+T.eq(view.rows[1].delta, 3, "common presentation preserves exact gains")
+T.eq(view.rows[3].delta, 0, "common presentation preserves zero gains")
+T.eq(view.from, 5, "common presentation retains the observed previous level")
+local missing = LevelUp.model(mon, { pokemon = {} }, nil, { splitSpecial = true, hp = 0 })
+T.eq(#missing.rows, 6, "a missing Gen 3 stat never changes the generation's layout")
+T.eq(missing.rows[1].value, 0, "an actual zero value stays zero")
+T.eq(missing.rows[2].value, nil, "unavailable values are not invented")
+T.eq(missing.rows[2].delta, nil, "unobserved gains remain unknown")
 T.eq(gain.from, 5, "records the actual previous level")
 T.eq(gain.to, 6, "records the actual new level")
 T.eq(gain.deltas.hp, 3, "HP gain compares maxima even when fainted")

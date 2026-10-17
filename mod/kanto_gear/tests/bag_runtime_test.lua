@@ -1,6 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local T = require("tests.modkit")
+love.graphics.arc = love.graphics.arc or function() end
 local generation = tonumber(os.getenv("KANTO_GEAR_TEST_GEN")) or 2
 local path = assert(os.getenv("KANTO_GEAR_MOD_PATH"))
 local run = T.sdk.loadMod(path, {
@@ -41,12 +42,7 @@ run.loader.modOptions.kanto_gear = { theme_v3 = "hgss" }
 run.loader.events:emit("mod.options_changed",
   { mod = "kanto_gear", key = "theme_v3" })
 
-local function upvalue(fn, target)
-  for index = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, index)
-    if name == target then return value end
-  end
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local inputHook
 for _, entry in ipairs(run.loader.hooks.chains["input.step"] or {}) do
   if entry.owner == "kanto_gear" then inputHook = entry.callback end
@@ -205,4 +201,125 @@ T.same(allBagIds(), { "POTION", "TM01" },
   "removed stacks disappear even while the native pocket filter is active")
 Bag.order = originalOrder
 save.inventory, save.bagOrder = originalInventory, originalBagOrder
+-- The real native field-item dispatch, not a synthetic decrement.
+stack:clear();stack:push(world)
+save.inventory,save.bagOrder={ POTION=3, FULL_RESTORE=2 }, { "POTION", "FULL_RESTORE" }
+run.data.items.POTION={ name="POTION", pocket="ITEM", needsTarget=true }
+run.data.items.FULL_RESTORE={ name="FULL RESTORE", pocket="ITEM", needsTarget=true }
+save.party={ { species="FIXMON_A",name="PARTNER",hp=1,
+  stats={hp=30},moves={} } }
+world.useFieldItem=function() return nil end
+game.say=function() end
+if generation==2 then
+  local Game2=require("src.core.Game2")
+  game.useFieldItem,game.usePartyItem,game.consumeItem=Game2.useFieldItem,Game2.usePartyItem,Game2.consumeItem
+end
+display.bag.pocket=1
+display.recentItem:bind(save)
+T.check(display.useBagItem("POTION"),"companion opens the real potion target picker")
+local picker=stack:top()
+if generation==1 then picker.onSwitch(save.party[1],picker)
+else picker.onChoose(1,save.party[1]) end
+display.recentItem:poll(save)
+T.eq(save.inventory.POTION,2,"native successful use consumes exactly one potion")
+T.eq(display.lastBagItem().id,"POTION","successful native effect enables the shortcut")
+T.eq(display.lastBagItem().count,2,"shortcut shows the live remaining quantity")
+stack:clear();stack:push(world);save.party[1].hp=30
+T.check(display.useBagItem("FULL_RESTORE"),"another native medicine can be attempted")
+picker=stack:top()
+if generation==1 then picker.onSwitch(save.party[1],picker)
+else picker.onChoose(1,save.party[1]) end
+display.recentItem:poll(save)
+T.eq(save.inventory.FULL_RESTORE,2,"native no-effect use consumes nothing")
+T.eq(display.lastBagItem().id,"POTION","no-effect use does not replace the last successful item")
+stack:clear();stack:push(world);display.bag.detail=nil;display.bag.message=nil
+local H=upvalue(display.drawBag,"THEME").hgss
+local model=display.bagModel()
+T.eq(H:bagHit(120,88,model),"recent","visible quick-access row is touch reachable")
+T.eq(H:bagHit(20,120,model),"item","ordinary cards stay touch reachable below it")
+T.eq(H:bagHit(20,106,model),nil,"the gap between shortcut and cards is inactive")
+save.inventory.POTION=nil
+T.eq(display.bagModel().recent,nil,"an empty stack removes the shortcut from the model")
+-- Companion actions must preserve the native safety prompts and ownership.
+stack:clear();stack:push(world)
+save.inventory.POTION=3
+local function actionIds(id)
+  local out={};for _, row in ipairs(display.bagActions(id)) do out[#out+1]=row.id end;return out
+end
+T.same(actionIds("POTION"),generation==1 and {"use","toss"} or {"use","give","toss"},
+  "item actions follow the generation's actual capabilities")
+run.data.items.SAFE_KEY={name="SAFE KEY",pocket="KEY_ITEM",keyItem=true,canToss=false,canSelect=true}
+save.inventory.SAFE_KEY=1
+T.same(actionIds("SAFE_KEY"),generation==1 and {"use"} or {"use","register"},"key items never offer toss/give")
+T.eq(display.performBagAction("SAFE_KEY","toss"),false,"important item cannot bypass the native permissions")
+T.eq(#stack.states,1,"rejected item action creates no screen")
+T.check(display.performBagAction("POTION","toss"),"discard reaches the native quantity flow")
+T.eq(save.inventory.POTION,3,"opening discard never removes inventory")
+T.eq(display.recentItem.pending,nil,"discard cannot be observed as successful use")
+local quantityView=display.startMenu()
+T.check(quantityView and quantityView.quantity,"native bag quantity uses the shared companion page")
+T.eq(quantityView.quantity.max,3,"shared page exposes the native Gen1/2 stack limit")
+T.eq(quantityView.quantity.label,run.data.items.POTION.name,"quantity keeps the actual selected item name")
+T.eq(quantityView.quantity.wrap,true,"legacy native quantity preserves wrap at its ends")
+T.eq(H:pcQuantityHit(190,110,quantityView.quantity),"plus","native quantity has a lower-screen plus target")
+T.check(pcall(display.drawContents),"native bag quantity renders without a handoff")
+T.eq(display.nativeHandoff,false,"quantity stays usable on the companion screen")
+if generation==1 then
+  local quantity=stack:top()
+  T.eq(quantity.max,3,"native toss quantity uses the real stack")
+  T.check(type(quantity.onDone)=="function","native quantity owns continuation/confirmation")
+  quantity.onDone(nil)
+  T.eq(save.inventory.POTION,3,"cancelled native quantity preserves every item")
+else
+  local pack=stack:top()
+  T.eq(pack.qtyState.max,3,"native toss quantity uses the real stack")
+  pack.qtyState.qty=2;pack:confirmToss()
+  T.eq(save.inventory.POTION,3,"quantity selection still requires native confirmation")
+  pack.confirm.onYes()
+  T.eq(save.inventory.POTION,1,"native confirmation discards exactly two items")
+end
+stack:clear();stack:push(world)
+T.eq(display.StartMenu.cursor(quantityView),nil,"a dismissed quantity page rejects stale touches")
+if generation==2 then
+  T.check(display.performBagAction("POTION","give"),"give enters the original held-item flow")
+  T.eq(stack:top().screenId,"Gen2PartyMenu","give opens the native Pokemon selection")
+  local targets=display.startMenu()
+  T.check(targets and targets.party,"give exposes the native party on the shared lower-screen page")
+  T.eq(targets.title,"GIVE ITEM TO","give keeps its distinct purpose on the target page")
+  T.eq(display.StartMenu.select(targets,1),true,"give target is touch-selectable")
+  T.eq(save.inventory.POTION,1,"opening give preserves the unselected item")
+  stack:clear();stack:push(world)
+end
+for _, dark in ipairs({false,true}) do
+  H:setVariant(dark)
+  for _, wrap in ipairs({false,true}) do
+    local q={label="POTION",qty=1,max=1,wrap=wrap}
+    T.eq(H:pcQuantityHit(40,110,q),nil,"single-item minus never has an action")
+    T.eq(H:pcQuantityHit(190,110,q),nil,"single-item plus never has an action")
+    T.eq(H:pcQuantityHit(40,170,q),"confirm","single-item confirm remains usable")
+  end
+  for count=1,5 do
+    local actions={};for i=1,count do actions[i]={id=tostring(i),label="ACTION "..i} end
+    local detail={detail={label="POTION",count=3,icon="medicine",lines={"LINE ONE","LINE TWO","LINE THREE"}},actions=actions,canUse=true}
+    T.check(pcall(H.bagDetail,H,detail),"item actions draw in both themes")
+    for i=1,count do
+      local x,y,w,h=H:bagActionRect(i,count)
+      T.check(y>=148 and y+h<=210,"all action rows fit below the description")
+      local hit,index=H:bagHit(x+w/2,y+h/2,detail)
+      T.eq(hit,"action","button and tap geometry agree")
+      T.eq(index,i,"touch identifies the exact semantic item action")
+      detail.canUse=false
+      T.eq(H:bagHit(x+w/2,y+h/2,detail),nil,"blocked context cannot invoke an item action")
+      detail.canUse=true
+      actions[i].enabled=false
+      T.eq(H:bagHit(x+w/2,y+h/2,detail),nil,"unavailable item action has no touch target")
+      actions[i].enabled=true
+    end
+  end
+end
+assert(loadfile(path .. "/tests/item_page_cases.lua"))()(T,display,H)
+assert(loadfile(path .. "/tests/safari_cases.lua"))()(T,display,H)
+assert(loadfile(path .. "/tests/move_page_cases.lua"))()(T,display,H)
+assert(loadfile(path .. "/tests/pp_legacy_cases.lua"))()(T,display,game,generation,run)
+assert(loadfile(path .. "/tests/recent_item_cases.lua"))()(T,path)
 T.finish("Kanto Gear HGSS Bag runtime")

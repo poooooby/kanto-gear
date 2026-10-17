@@ -11,11 +11,11 @@ local function check(condition, label)
 end
 
 local catalogs = {}
-for _, language in ipairs({ "de", "es", "fr", "ja" }) do
-  catalogs[language] = loadModule("lang/" .. language .. ".lua")
+for _, language in ipairs({ "de", "es", "fr", "ja", "it" }) do
+  catalogs[language] = loadModule("i18n/catalogs/" .. language .. ".lua")
 end
 
-local I18N = loadModule("i18n.lua")
+local I18N = loadModule("i18n/init.lua")
 local selected = "de"
 local i18n = I18N.new(function(language) return catalogs[language] end,
   function() return selected end)
@@ -29,6 +29,17 @@ check(i18n:format("SIGNALS %d", 3) == string.format(
   catalogs.fr["SIGNALS %d"], 3), "translated placeholders are formatted")
 selected = "es"
 check(i18n:language() == "es", "Spanish is supported")
+selected = "it-IT"
+check(i18n:language() == "it", "Italian locale resolves to its catalog")
+check(i18n:text("HP") == "PS" and i18n:text("FIGHT") == "LOTTA"
+  and i18n:text("BAG") == "BORSA" and i18n:text("RUN") == "FUGA",
+  "Italian uses the familiar Pokemon battle terminology")
+check(i18n:text("HIDDEN POWER") == "INTROFORZA"
+  and i18n:text("TM/HM") == "MT/MN", "Italian move and machine names follow the games")
+check(i18n:format("HP %d/%d", 12, 34) == "PS 12/34", "Italian format arguments survive")
+check(i18n:text("OPEN APP") == "APRI" and i18n:text("OPEN") == "APERTO",
+  "Italian distinguishes opening apps from unfinished tasks")
+check(#i18n:coverage("it") == 0, "Italian battle labels have no fallback")
 selected = "ja-JP"
 check(i18n:language() == "ja", "Japanese locale resolves to its catalog")
 check(i18n:text("START GAME") == catalogs.ja["START GAME"], "Japanese UI text comes from contributor catalog")
@@ -45,6 +56,14 @@ check(i18n:text("PIKACHU") == "PIKACHU",
 
 selected = "de"
 check(i18n:text("UNTRANSLATED UI") == "UNTRANSLATED UI", "missing UI falls back to English")
+catalogs.de["PENDING TRANSLATION"] = false
+catalogs.de["EMPTY TRANSLATION"] = ""
+check(i18n:text("PENDING TRANSLATION") == "PENDING TRANSLATION", "false translation falls back to English")
+check(i18n:text("EMPTY TRANSLATION") == "EMPTY TRANSLATION", "empty translation falls back to English")
+local missing = table.concat(i18n:coverage("de"), "|")
+check(missing:find("PENDING TRANSLATION", 1, true) and missing:find("EMPTY TRANSLATION", 1, true),
+  "untranslated placeholders remain visible in coverage")
+catalogs.de["PENDING TRANSLATION"], catalogs.de["EMPTY TRANSLATION"] = nil, nil
 catalogs.de["%s %d"] = "%d %s"
 check(i18n:format("%s %d", "25", 3) == "25 3", "reordered specifiers cannot silently corrupt values")
 catalogs.de["%s %d"] = "%s"
@@ -60,50 +79,52 @@ local function signature(value)
 end
 for code, catalog in pairs(catalogs) do
   for key, value in pairs(catalog) do
-    if signature(key) ~= "" then
+    if type(value) == "string" and signature(key) ~= "" then
       check(signature(key) == signature(value), code .. " format signature: " .. key)
     end
   end
 end
 
 local reference, referenceCount = catalogs.de, 0
-for key, value in pairs(catalogs.ja) do
-  check(reference[key] ~= nil, "ja has no unknown key: " .. key)
-  check(type(value) == "string" and value ~= "", "ja has a non-empty value: " .. key)
-end
 for key in pairs(reference) do referenceCount = referenceCount + 1 end
-local pendingPath = root .. "/../../translations/ja-missing.lua"
-local pending = assert(loadfile(pendingPath))()
-for key in pairs(reference) do
-  check((catalogs.ja[key] == nil) == (pending[key] == false), "Japanese completion file matches coverage: " .. key)
-end
-for key in pairs(pending) do check(reference[key] ~= nil, "Japanese completion key exists: " .. key) end
 
-for _, language in ipairs({ "es", "fr" }) do
-  local count = 0
+for _, language in ipairs({ "de", "es", "fr", "ja", "it" }) do
+  local count, expectedMissing = 0, {}
+  local localized = I18N.new(function(code) return catalogs[code] end,
+    function() return language end)
   for key, value in pairs(catalogs[language]) do
     count = count + 1
     check(reference[key] ~= nil, language .. " has no extra key: " .. key)
-    check(type(value) == "string" and value ~= "",
-      language .. " has a non-empty value: " .. key)
+    check(value == false or type(value) == "string" and value ~= "",
+      language .. " has a translation or an explicit fallback: " .. key)
+    check(localized:text(key) == (value or key), language .. " resolves its translation or English fallback: " .. key)
+    if value == false then expectedMissing[#expectedMissing + 1] = key end
   end
   check(count == referenceCount, language .. " catalog key count matches")
   for key in pairs(reference) do
     check(catalogs[language][key] ~= nil,
       language .. " contains key: " .. key)
   end
+  table.sort(expectedMissing)
+  check(table.concat(localized:coverage(language), "|") == table.concat(expectedMissing, "|"),
+    language .. " missing translations come directly from its catalog")
 end
 
 for key, value in pairs(reference) do
   check(type(value) == "string" and value ~= "",
     "de has a non-empty value: " .. key)
 end
+for key, value in pairs(catalogs.it) do
+  check(type(value) == "string" and value ~= "", "Italian has a complete translation: " .. key)
+end
 
 -- Literal callsites are a release gate; dynamic screen models are additionally
 -- exercised by the preview matrix. Game-provided values never enter this API.
 local requested = {}
 local mainSource
-for _, filename in ipairs({ "main.lua", "hgss.lua", "achievements_ui.lua", "notes_ui.lua", "notes.lua", "pss_ui.lua" }) do
+for _, filename in ipairs({ "main.lua", "ui/base/init.lua", "ui/features/achievements.lua", "ui/features/notes.lua", "features/notes.lua", "ui/features/pss.lua",
+    "features/daycare.lua", "ui/features/daycare.lua", "runtime/daycare.lua", "features/calendar.lua",
+    "ui/features/calendar.lua", "runtime/calendar.lua", "runtime/calendar_gen3.lua" }) do
   local file = assert(io.open(root .. "/" .. filename, "rb"))
   local source = file:read("*a")
   file:close()
@@ -123,12 +144,20 @@ for _, filename in ipairs({ "main.lua", "hgss.lua", "achievements_ui.lua", "note
 end
 
 -- Every translated glyph must survive the classic renderer as well as HGSS.
-local font = assert(loadstring("return " .. assert(mainSource:match("local FONT = (%b{})"))))()
+local core = assert(loadfile(root .. "/tests/support/core.lua"))()
+local font, normalize = core.FONT, core.normalize
+check(normalize("sì può più perché") == "SÌ PUÒ PIÙ PERCHÉ", "Italian accents survive bitmap normalization")
+local atlasGlyphs = loadModule("ui/fonts/glyphs.lua")
+for _, glyph in ipairs({ "Ì", "Ò", "ì", "ò" }) do
+  check(atlasGlyphs:find(glyph, 1, true) ~= nil, "image fonts include Italian glyph " .. glyph)
+end
 for code, catalog in pairs(catalogs) do
   local characters = {}
   for _, value in pairs(catalog) do
-    for glyph in value:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-      characters[glyph] = true
+    if type(value) == "string" then
+      for glyph in normalize(value):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        characters[glyph] = true
+      end
     end
   end
   for glyph in pairs(characters) do
@@ -145,12 +174,7 @@ end
 requested["NO SPACE"] = true
 
 -- Shared dynamic arrays are not visible to the literal-callsite scan.
-local entry = assert(loadfile(root .. "/main.lua"))()
-local theme
-for index = 1, debug.getinfo(entry, "u").nups do
-  local name, value = debug.getupvalue(entry, index)
-  if name == "THEME" then theme = value break end
-end
+local theme = assert(loadfile(root .. "/tests/support/core.lua"))().THEME
 for _, effects in ipairs({ theme.moveEffects, theme.moveSpecial }) do
   for _, lines in pairs(effects) do
     for _, key in ipairs(lines) do requested[key] = true end

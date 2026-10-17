@@ -8,16 +8,7 @@ local function hook(id)
     if entry.owner == "kanto_gear" then return entry.callback end
   end
 end
-local function up(fn, target, replacement)
-  for i = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, i)
-    if name == target then
-      if replacement ~= nil then debug.setupvalue(fn, i, replacement) end
-      return value
-    end
-  end
-  error("Missing upvalue " .. target)
-end
+local up = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local world = { map = { id = "ROUTE_32" } }
 local game = { data = run.data, world = world,
   save = { generation = 2, version = "gold", meta = { playthroughId = "notes-test" },
@@ -119,5 +110,27 @@ T.check(not notes.stroke, "release outside the drawing panel ends the captured s
 T.eq(gameEvents, 0, "captured drawing movement does not reach the game")
 pointer(nextPointer, game, { phase = "pressed", x = 50, y = 50 })
 T.eq(gameEvents, 1, "fresh top-screen input still reaches the game")
+
+-- The theme may recase UI labels, but must preserve user text at the actual
+-- font output, including the editor loaded after the v4 theme extension.
+local G = up(theme.hgss.notesInk, "G")
+local originalPrint, originalPrintf = G.print, G.printf
+local printed = {}
+G.print = function(value, ...) printed[tostring(value)] = true; return originalPrint(value, ...) end
+G.printf = function(value, ...) printed[tostring(value)] = true; return originalPrintf(value, ...) end
+local function preserves(value, message)
+  printed = {}
+  theme.hgss:notes(notes)
+  T.check(printed[value], message)
+end
+notes:action("new"); notes:type("MY NOTE"); notes:action("finish")
+preserves("MY NOTE", "note title keeps the user's capitalization")
+notes:action("edit", "text"); notes:type("KEEP MY CAPS")
+preserves("KEEP MY CAPS", "note editor keeps uppercase user text")
+notes:action("finish")
+preserves("KEEP MY CAPS", "note body keeps uppercase user text")
+notes:action("view", "tasks"); notes:action("addTask"); notes:type("CATCH THEM ALL"); notes:action("finish")
+preserves("CATCH THEM ALL", "checklist keeps uppercase user text")
+G.print, G.printf = originalPrint, originalPrintf
 run.release()
 T.finish("Notes touch integration")

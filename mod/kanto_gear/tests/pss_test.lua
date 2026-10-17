@@ -2,7 +2,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 love = require("tests.love_stub")
 local path = os.getenv("KANTO_GEAR_MOD_PATH") or "mods/kanto_gear"
-local Pss = assert(loadfile(path .. "/pss.lua"))()
+local Pss = assert(loadfile(path .. "/features/pss.lua"))()
 local Client = require("src.online.Client")
 local Connect = require("src.online.Connect")
 local Relay = require("tests.support.fake_relay")
@@ -26,6 +26,7 @@ for _, identity in ipairs({
   {name="GOLD", version="crystal", generation=2},
   {name="RED", version="firered", generation=3},
   {name="LEAF", version="leafgreen", generation=3},
+  {name="MAY", version="emerald", generation=3},
 }) do
   Client.reset(); Connect.reset()
   local relay = Relay.new()

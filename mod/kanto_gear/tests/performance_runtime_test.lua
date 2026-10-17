@@ -11,16 +11,7 @@ local function hook(name)
     if entry.owner == "kanto_gear" then return entry.callback end
   end
 end
-local function up(fn, key, replacement)
-  for i = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, i)
-    if name == key then
-      if replacement ~= nil then debug.setupvalue(fn, i, replacement) end
-      return value
-    end
-  end
-  error("Missing upvalue " .. key)
-end
+local up = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 local world = { map = { id = "PALLET_TOWN" } }
 local game = { data = run.data, world = world, overworld = world,
   save = { generation = generation, player = { name = "RED", id = 7, map = "PALLET_TOWN" },
@@ -90,13 +81,63 @@ compose(function() end, {}, context)
 T.eq(advances, 2, "leaving Stamps pauses album work")
 up(compose, "page", "ACHIEVEMENTS")
 connected = false
+now = now + 0.051 -- Hardware discovery has a shared 50ms cache.
 compose(function() end, {}, context)
 T.eq(advances, 2, "disconnected display pauses album work")
 connected = true
+now = now + 0.051
 game.stack.states[2] = { isTextBox = true }
 compose(function() end, {}, context)
 T.eq(advances, 2, "game dialogue pauses hidden album work")
 game.stack.states[2] = nil
 compose(function() end, {}, context)
 T.eq(advances, 3, "returning to visible Stamps resumes the same job")
+local input = hook("input.step")
+input(function() now = now + 0.010; return sentinel end, game, 1 / 60)
+T.check(metrics.gear_input.n > 0, "diagnostics include work in the input hook")
+T.check(metrics.gear_input.max < 0.0001, "host simulation time is excluded from Gear input")
+do
+  local api = up(input, "mod")
+  local originalWorld, calls, available = api.world, 0, {}
+  api.world = { current = function() end, availableFieldActions = function()
+    calls = calls + 1
+    return available
+  end }
+  local home = display.home
+  home.layout = { tiles = {
+    { id = "explorer_widget", page = 1, column = 1, row = 1 },
+    { id = "tool_widget_old_rod", page = 2, column = 1, row = 1 },
+  } }
+  home.page, home.editing, home.library = 1, false, false
+  game.stack.states = { world }
+  up(compose, "page", "HOME")
+  local function poll()
+    now = now + 0.06
+    up(compose, "nextPoll", 0)
+    compose(function() end, {}, context)
+  end
+  for _ = 1, 3 do poll() end
+  T.eq(calls, 0, "Home does not query field actions for an off-page tool widget")
+  home.page = 2
+  game.save.inventory.OLD_ROD = 1
+  available = { { id = "fish", label = "FISH", rods = { { id = "OLD_ROD" } } } }
+  poll()
+  local surface = display.homeCatalog.surfaces.tool_widget_old_rod
+  T.eq(calls, 1, "a visible tool widget retains the normal poll cadence")
+  T.check(surface.ready, "the visible rod becomes ready in the same poll")
+  available = {}
+  poll()
+  T.check(not surface.ready, "the visible rod stops being ready as soon as context changes")
+  home.page, home.library = 1, true
+  T.check(display.needsTools(), "the widget library still refreshes field unlocks")
+  home.library, home.editing = false, true
+  T.check(display.needsTools(), "editing still refreshes field unlocks")
+  home.editing = false
+  local before = calls
+  display.openHomeApp("tools")
+  T.eq(calls, before + 1, "opening Field Kit refreshes before its first paint")
+  poll()
+  T.eq(calls, before + 2, "Field Kit retains its normal live updates")
+  api.world = originalWorld
+end
 T.finish("Kanto Gear performance runtime Gen " .. generation)

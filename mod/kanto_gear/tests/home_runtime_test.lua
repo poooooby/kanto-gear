@@ -37,11 +37,13 @@ T.eq(optionByKey.ui_motion and optionByKey.ui_motion.default, true,
   "Silph Link motion is an explicit opt-out setting")
 T.eq(optionByKey.info_level and optionByKey.info_level.reset_default, "enhanced",
   "research resets to the canonical 3.0 default")
-T.eq(optionByKey.battle_view and optionByKey.battle_view.reset_default, "standard",
-  "battle view resets independently of migrated startup state")
-T.check(optionByKey.ui_motion.visible_if.one_of
-    and optionByKey.local_map.visible_if.not_one_of,
-  "HGSS transitions and the legacy area map are mutually exclusive options")
+T.eq(optionByKey.battle_view.default, "standard",
+  "the optional battle modes preserve Companion as the default")
+T.eq(#optionByKey.battle_view.choices, 4,
+  "all four battle views remain available alongside the v4 themes")
+T.check(optionByKey.ui_motion.visible_if == nil
+    and optionByKey.local_map.visible_if == nil,
+  "native menus keep options reachable without unsupported list conditions")
 run.loader.modOptions.kanto_gear = { theme = "kanto" }
 
 local world = { map = { id = "PALLET_TOWN" } }
@@ -60,12 +62,7 @@ local game = {
 }
 run.loader.events:emit("game.ready", { game = game })
 
-local function upvalue(fn, target)
-  for index = 1, debug.getinfo(fn, "u").nups do
-    local name, value = debug.getupvalue(fn, index)
-    if name == target then return value end
-  end
-end
+local upvalue = assert(loadfile(assert(os.getenv("KANTO_GEAR_MOD_PATH")) .. "/tests/support/runtime.lua"))().get
 
 local inputHook
 for _, entry in ipairs(run.loader.hooks.chains["input.step"] or {}) do
@@ -86,14 +83,47 @@ end
 local home, catalog, store = display.home, display.homeCatalog,
   display.storeById
 local theme = upvalue(display.drawContents, "THEME")
+local gearOptions = {}
+for _, row in ipairs(theme.optionSchema) do gearOptions[row.key] = row end
+T.check(gearOptions.ui_motion.visible_if.one_of
+    and gearOptions.local_map.visible_if.not_one_of,
+  "Gear keeps contextual filtering for transitions and the legacy area map")
+do
+  local pixels = upvalue(theme.hgss.silphEmblem, "emblemPixels")
+  for _, hexShape in ipairs({ false, true }) do
+    for _, size in ipairs({ 32, 64, 65 }) do
+      local data, left, right = pixels(size, 4, hexShape), math.huge, -math.huge
+      local swept, settled = {}, {}
+      for segment = 1, 3 do
+        for _, point in ipairs(data.px[segment]) do
+          left, right = math.min(left, point[1]), math.max(right, point[1])
+          -- LuaJIT can retain -0 at the first column; integer pixel keys must normalize it.
+          swept[string.format("%d:%d", point[1], point[2])] = point[3]
+        end
+        for _, run in ipairs(data.runs[segment]) do
+          for x = run[2], run[2] + run[4] - 1 do settled[string.format("%d:%d", x, run[3])] = run[1] end
+        end
+      end
+      T.eq(left + right, size - 1, "both emblem tips have symmetric pixel bounds")
+      T.check(not hexShape or left < 0 and right >= size,
+        "hexagonal emblem includes the tips outside its height-sized square")
+      T.eq(next(swept) ~= nil, true, "the emblem has visible pixels")
+      local same = true
+      for key, kind in pairs(swept) do if settled[key] ~= kind then same = false end end
+      for key, kind in pairs(settled) do if swept[key] ~= kind then same = false end end
+      T.check(same, "cached runs exactly match the animated emblem pixels")
+      T.eq(pixels(size, 4, hexShape), data, "settled emblems reuse the geometry cache")
+    end
+  end
+end
 T.eq(display.storeEntries()[1].id, "pss", "PSS is visible on the first Apps page")
 T.eq(display.storeTodayEntries()[1].id, "pss", "PSS is featured when the Store opens")
-T.eq(display.storeWidgetSummary().label, "SILPH CONNECT", "Store widget promotes uninstalled Silph Connect")
+T.eq(display.storeWidgetSummary().label, "APPS", "Store widget shows the catalogue when no app is new")
 do
   local renderer = theme.hgss
   local originalText, originalBar = renderer.partyInfo, renderer.expBar
-  for _, code in ipairs({ "de", "es", "fr" }) do
-    local labels = assert(loadfile(path .. "/lang/" .. code .. ".lua"))()
+  for _, code in ipairs({ "de", "es", "fr", "it" }) do
+    local labels = assert(loadfile(path .. "/i18n/catalogs/" .. code .. ".lua"))()
     local nextLabel, value = labels.NEXT, "999999"
     local positions, bar = {}, {}
     renderer.partyInfo = function(_, text, x) positions[text] = x end
@@ -158,11 +188,14 @@ local function tapStoreAppAction(id)
   end
   assert(type(absolute) == "number", "missing Store app " .. id)
   local size = display.storePageSizes.apps
-  home.storeView = "apps"
+  home.storeView, home.storeConfirm = "apps", nil
   home.storePages.apps = math.ceil(absolute / size)
   local visible = (absolute - 1) % size
-  local column, row = visible % 2, math.floor(visible / 2)
-  display.tapStore(7 + column * 115 + 57, 53 + row * 44 + 33)
+  -- touch the app's row, its key on the picked pak, then YES
+  display.tapStore(60, 62 + visible * 25 + 8)
+  display.tapStore(198, 140)
+  display.tapStore(60, 188)
+  home.storeReceived = nil
 end
 local appWidgets = {
   pokedex = { id = "pokedex_widget", columns = 5 },
@@ -205,6 +238,20 @@ T.eq(display.Home.removePackage(removalAudit, catalog, "bag"), 2,
 T.eq(#removalAudit.tiles, 0,
   "no orphaned app surface remains after package removal")
 local api = upvalue(display.saveHome, "mod")
+do
+  local options = run.loader.modOptions.kanto_gear
+  local oldLevel, oldInventory = options.info_level, game.save.inventory
+  local function radar()
+    for _, row in ipairs(display.toolModels()) do if row.radar then return row end end
+  end
+  options.info_level, game.save.inventory = "enhanced", { ITEMFINDER = 1 }
+  T.check(radar() and radar().ready, "owned Itemfinder exposes the radar in Field Kit")
+  game.save.inventory = {}
+  T.eq(radar(), nil, "missing Itemfinder cannot expose a radar action")
+  game.save.inventory, options.info_level = { ITEMFINDER = 1 }, "spoiler"
+  T.eq(radar(), nil, "spoiler mode does not offer the redundant radar")
+  options.info_level, game.save.inventory = oldLevel, oldInventory
+end
 local durableHome
 local function copy(value)
   if type(value) ~= "table" then return value end
@@ -281,7 +328,11 @@ do
   display.settings.category = 6
   T.eq(display.settingsModel().rows[1].action, "home_help",
     "System settings exposes the explanation above the reset actions")
-  display.tapSettings(30, 50)
+  display.tapSettings(30, 80)
+  T.eq(display.settingsModel().selected, "home_help",
+    "Home help is selected and explained before the explicit action")
+  T.check(page() == "SETTINGS" and not home.help, "selecting the row alone performs no action")
+  display.tapSettings(170, 80)
   T.check(page() == "HOME" and home.help and not home.editing,
     "Show me reopens the hint with one tap without resetting Home")
   T.eq(#home.layout.tiles, initialTiles, "replaying help preserves every Home tile")
@@ -337,8 +388,9 @@ display.setPackageInstalled("tools", false)
 tapStoreAppAction("tools")
 T.eq(display.storeEntry(store.tools).state, "open",
   "the visible GET button enables its matching app")
-home.storeDetail = "tools"
-display.tapStore(180, 65)
+home.storeView, home.storeGearSel = "library", "tools"
+display.tapStore(196, 190)
+display.tapStore(60, 188)
 T.eq(display.storeEntry(store.tools).state, "get",
   "the detail REMOVE button disables its matching app")
 display.setPackageInstalled("tools", true)
@@ -405,13 +457,15 @@ T.check(dexModel.view == "index" and #dexModel.entries > 0,
 display.tapPokedex(20, 50)
 T.eq(display.pokedex.view, "profile",
   "tapping a species opens its encyclopedia profile")
-display.tapPokedex(80, 115)
+local dx,dy,dw,dh=display.PokedexPage.cardRect(2)
+display.tapPokedex((dx+dw/2)/1.5,(dy+dh/2)/1.5)
 T.eq(display.pokedex.view, "habitat",
   "the profile habitat card opens real encounter research")
 display.tapPokedex(5, 5)
 T.eq(display.pokedex.view, "profile",
   "Pokedex detail back returns to the species profile")
-display.tapPokedex(25, 115)
+dx,dy,dw,dh=display.PokedexPage.cardRect(1)
+display.tapPokedex((dx+dw/2)/1.5,(dy+dh/2)/1.5)
 T.eq(display.pokedex.view, "stats",
   "the profile stats card opens base-stat research")
 api.device = api.device or {
@@ -508,7 +562,7 @@ T.check(pcall(display.drawContents),
   "the real Store runtime model renders without an exception")
 display.prepareMotion()
 local storeMotionKey = display.motionKey()
-home.storeView = "apps"
+home.storeView = "library"
 T.check(display.motionKey() ~= storeMotionKey,
   "Store subviews receive distinct redraw identities")
 display.prepareMotion()
@@ -529,6 +583,64 @@ world.phase = "quantity"
 T.check(display.motionKey() ~= phaseKey,
   "an in-place context phase change receives a distinct redraw identity")
 world.screenId, world.phase, world.index = nil, nil, nil
+do
+  local clock, oldTime = 1, love.timer.getTime
+  local savedGuard = {}; for k,v in pairs(display.touchGuard) do savedGuard[k]=v end
+  love.timer.getTime = function() return clock end
+  home.storeView, home.storeConfirm, home.storeReceived = "apps", nil, nil
+  home.storePages.apps = 1
+  local _, _, _, pages = display.storeSelection("apps")
+  T.check(pages > 1, "Store fixture has multiple catalog pages")
+  local function pointer(action, x, y)
+    touchEvent(("%s,%d,%d"):format(action,x,y),240,216)
+  end
+  local function ready()
+    display.syncTouchGuard(); clock = clock + 1
+  end
+  local function swipe(x, from, to)
+    ready(); pointer("down",x,from); pointer("up",x,to)
+  end
+  swipe(80,145,75)
+  T.eq(home.storePages.apps,2,"upward content swipe advances BUY")
+  T.eq(home.storeConfirm,nil,"content swipe never purchases an app")
+  swipe(80,75,145)
+  T.eq(home.storePages.apps,1,"downward content swipe returns BUY")
+  swipe(80,75,145)
+  T.eq(home.storePages.apps,1,"scrolling before the beginning does not wrap")
+  home.storePages.apps=pages; swipe(80,145,75)
+  T.eq(home.storePages.apps,pages,"scrolling past the end does not wrap")
+  swipe(195,145,75)
+  T.eq(home.storePages.apps,pages,"the app preview is not a list swipe target")
+  home.storeConfirm="notes"; swipe(80,75,145)
+  T.eq(home.storePages.apps,pages,"confirmation blocks list swipes")
+  T.eq(home.storeConfirm,"notes","swiping does not dismiss confirmation")
+  home.storeConfirm=nil; home.storePages.apps=1; ready()
+  local _,_,_,_,thumbY,thumbH=theme.hgss:storeScrollGeometry(1,pages)
+  pointer("down",154,thumbY+math.floor(thumbH/2))
+  T.eq(home.storePages.apps,1,"grabbing the thumb does not jump pages")
+  pointer("move",154,159)
+  T.eq(home.storePages.apps,pages,"dragging the rail updates before release")
+  pointer("up",154,159)
+  T.eq(home.storePages.apps,pages,"release does not cycle an extra page")
+  T.eq(home.storeView,"apps","rail dragging never switches Store tabs")
+  T.eq(home.storeReceived,nil,"rail dragging never installs an app")
+  ready(); pointer("down",154,159); pointer("move",154,0); pointer("up",154,0)
+  T.eq(home.storePages.apps,1,"dragging above the rail clamps to the first page")
+  ready(); pointer("tap",154,159)
+  T.eq(home.storePages.apps,pages,"tap-only input jumps to the touched rail position")
+  ready(); pointer("tap",154,62)
+  T.eq(home.storePages.apps,1,"tap-only input can return to the first page")
+  local entries=display.storeEntries
+  display.storeEntries=function() return {entries()[1]} end
+  swipe(80,145,75)
+  T.eq(home.storePages.apps,1,"a single-page catalog ignores scrolling")
+  T.check(theme.hgss:storeHit(154,100,"apps",{pages=1})~="scroll","a single-page catalog has no rail hit target")
+  T.eq(theme.hgss:storeScrollPage(100,1),1,"a single-page rail has no invalid division")
+  display.storeEntries=entries; love.timer.getTime=oldTime
+  for k in pairs(display.touchGuard) do display.touchGuard[k]=nil end
+  for k,v in pairs(savedGuard) do display.touchGuard[k]=v end
+  home.storeView="today"
+end
 local oldRodSurface = catalog.surfaces.tool_widget_old_rod
 display.refreshToolSurfaces({})
 T.check(oldRodSurface.hidden,
@@ -571,6 +683,104 @@ T.eq(page(), "TOOLS",
   "a field widget that is not usable here opens its Field Kit")
 tap(5, 5)
 T.eq(page(), "HOME", "Field Kit back returns Home")
+do
+  local inventory, party, badges = game.save.inventory, game.save.party, game.save.player.badges
+  local availableTool = display.availableTool
+  game.save.inventory = { BICYCLE = 1, OLD_ROD = 1, GOOD_ROD = 1 }
+  game.save.party = { { moves = { { id = "CUT" }, { id = "TELEPORT" } } } }
+  game.save.player.badges = { HIVE = true }
+  local usable = { cut = { id = "cut" }, teleport = { id = "teleport" } }
+  display.availableTool = function(_, id) return usable[id] end
+  local actions = display.toolModels()
+  T.eq(#actions, 4, "Tools groups multiple rods into one fishing card")
+  for index, id in ipairs({ "cut", "teleport", "bicycle", "fish" }) do
+    T.eq(actions[index].id, id, "usable tools come first with stable order within each group")
+    T.eq(actions[index].ready, index <= 2, "the sorted card keeps its current availability")
+  end
+  local action, index = theme.hgss:toolsHit(20, 50, { actions = actions, page = 1 })
+  T.eq(action, "action", "the first sorted card remains tappable")
+  T.eq(index and actions[index].action, usable.cut, "touch resolves the sorted card's actual field action")
+  local view = display.toolsView()
+  T.eq(view.pages, 1, "a small Field Kit fits on one page")
+  action, index = theme.hgss:toolsHit(130, 50, view)
+  T.eq(index and actions[index].id, "teleport", "the second ready card sits beside the first")
+  T.eq(theme.hgss:toolsHit(20, 90, view), nil, "unlocked tools that do nothing here stay inert")
+  local crowded = { { ready = true, rods = { {}, {}, {} } } }
+  for i = 1, 22 do crowded[#crowded + 1] = { ready = i <= 10 } end
+  local layout, seen = theme.hgss:toolsLayout(crowded), {}
+  T.check(layout.pages > 1, "overflowing Field Kit creates additional pages")
+  for _, item in ipairs(layout.items) do
+    T.check(not seen[item.index], "each Field Kit action appears exactly once")
+    seen[item.index] = true
+    T.check(item.y >= 34 and item.y + item.h <= 199, "paged tools leave the pager clear")
+    local model = { actions = crowded, layout = layout, page = item.page }
+    local hit, index = theme.hgss:toolsHit(item.x + item.w / 2, item.y + item.h / 2, model)
+    if item.kind == "chip" then T.eq(hit, nil, "idle overflow chips remain inert")
+    else T.eq(index, item.index, "overflow card resolves its original action") end
+    for _, other in ipairs(layout.items) do
+      if item ~= other and item.page == other.page then
+        T.check(item.x + item.w <= other.x or other.x + other.w <= item.x
+          or item.y + item.h <= other.y or other.y + other.h <= item.y,
+          "Field Kit controls never overlap")
+      end
+    end
+    if item.kind == "rods" then
+      for rod = 1, 3 do
+        local rx, ry, rw, rh = theme.hgss:toolRodRect(item, rod, 3)
+        local kind, owner, slot = theme.hgss:toolsHit(rx + rw / 2, ry + rh / 2, model)
+        T.check(kind == "rod" and owner == item.index and slot == rod,
+          "each inline rod resolves independently")
+      end
+    end
+  end
+  T.eq(#layout.items, #crowded, "pagination retains every unlocked tool")
+  local availableActions = api.world.availableFieldActions
+  api.world.availableFieldActions = function() return { usable.cut, usable.teleport } end
+  display.openHomeApp("tools")
+  usedTool = nil
+  tap(90, 33)
+  T.eq(display.toolsView().armed, "teleport", "first Teleport tap arms the visible card")
+  T.eq(usedTool, nil, "first Teleport tap does not change location")
+  tap(90, 33)
+  T.eq(usedTool and usedTool.id, "teleport", "second Teleport tap executes the field action")
+  T.eq(display.toolsView().armed, nil, "executed location action is disarmed")
+  tap(90, 33)
+  run.loader.events:emit("map.entered", { mapId = "ROUTE_1" })
+  T.eq(display.toolsView().armed, nil, "map changes invalidate confirmation even with identical tools")
+  run.loader.events:emit("map.entered", { mapId = "PALLET_TOWN" })
+  tap(90, 33)
+  run.loader.events:emit("save.loaded", {})
+  T.eq(display.toolsView().armed, nil, "loading a save invalidates the waiting confirmation")
+  display.openHomeApp("tools")
+  tap(90, 33)
+  display.openHomeApp("map")
+  T.eq(display.toolsView().armed, nil, "opening another app cancels the waiting confirmation")
+  tap(5, 5)
+  display.openHomeApp("tools")
+  tap(90, 33)
+  api.world.availableFieldActions = function() return {}, "world is busy" end
+  upvalue(upvalue(display.activateTool, "useTool"), "refreshTools")()
+  T.eq(display.toolsView().armed, nil, "native busy state cancels the waiting confirmation")
+  tap(5, 5)
+  api.world.availableFieldActions = availableActions
+  usable = { bicycle = { id = "bicycle" }, fish = { id = "fish" } }
+  actions = display.toolModels()
+  for index, id in ipairs({ "bicycle", "fish", "cut", "teleport" }) do
+    T.eq(actions[index].id, id, "Tools reorders when the current context changes")
+  end
+  usable.fish.rods = { { id = "OLD_ROD" }, { id = "GOOD_ROD" }, { id = "SUPER_ROD" } }
+  display.openHomeApp("tools")
+  local fishingView = display.toolsView()
+  local fishingCard = fishingView.layout.items[1]
+  local rx, ry, rw, rh = theme.hgss:toolRodRect(fishingCard, 3, 3)
+  usedTool = nil
+  tap((rx + rw / 2) / theme.hgssScale, (ry + rh / 2) / theme.hgssScale)
+  T.eq(usedTool and usedTool.id, "fish", "inline rod selection starts the native fishing action")
+  T.eq(usedTool and usedTool.rod, "SUPER_ROD", "inline rod selection preserves the tapped rod ID")
+  tap(5, 5)
+  game.save.inventory, game.save.party, game.save.player.badges = inventory, party, badges
+  display.availableTool = availableTool
+end
 home.layout = { tiles = {
   { id = "map_app", page = 1, column = 1, row = 1 },
 } }
@@ -624,10 +834,14 @@ love.timer.getTime = realTime
 T.check(catalog.packages.settings.fixed
     and catalog.surfaces.settings_app.package == "settings",
   "Silph Link Settings is a fixed OS app with its own Home icon")
+display.settings.direct, display.settings.choicePage = true, 2
 T.check(display.openHomeApp("settings"), "Settings opens from Home")
 T.eq(page(), "SETTINGS", "Settings owns a real Silph Link page")
+T.eq(display.settings.option, nil, "reopening Settings clears its previous explanation")
+T.eq(display.settings.direct, nil, "reopening Settings clears direct-navigation state")
+T.eq(display.settings.choicePage, 1, "reopening Settings resets its choice pager")
 local settings = display.settingsModel()
-T.eq(#settings.categories, 6,
+T.eq(#(settings.tabs or settings.categories), 6,
   "Settings groups the existing options into six readable sections")
 display.settings.category, display.settings.page = 5, 1
 settings = display.settingsModel()
@@ -677,17 +891,32 @@ T.check(display.cycleSetting(mapMotionRow, 1), "map movement mode can be changed
 T.eq(run.loader.modOptions.kanto_gear.map_motion, "performance", "Settings saves the performance mode")
 display.cycleSetting(mapMotionRow, 1)
 T.eq(run.loader.modOptions.kanto_gear.map_motion, "quality", "Settings can restore quality mode")
-local originalLanguage = run.loader.modOptions.kanto_gear.language or "en"
-display.tapSettings(220, 62)
-T.check(run.loader.modOptions.kanto_gear.language ~= originalLanguage,
-  "the visible right value arrow advances the option")
-display.tapSettings(20, 62)
-T.eq(run.loader.modOptions.kanto_gear.language, originalLanguage,
-  "the visible left value arrow reverses the option")
-display.tapSettings(152, 200)
-T.eq(display.settings.page, 2, "the bottom next arrow opens the second Settings page")
-display.tapSettings(88, 200)
-T.eq(display.settings.page, 1, "the bottom previous arrow returns to the first page")
+api.options:set("language", "en")
+display.tapSettings(30, 80)
+T.eq(display.settingsModel().selected, "language",
+  "the first tap selects the visible setting and explains it")
+display.tapSettings(170, 80)
+T.eq(display.settingsModel().option, "language",
+  "the selected row's value opens its full list of choices")
+T.eq(run.loader.modOptions.kanto_gear.language, "en",
+  "opening an explanation does not change the setting")
+display.tapSettings(120, 180)
+T.eq(run.loader.modOptions.kanto_gear.language, "en",
+  "the explanation itself cannot change the setting")
+local choiceTop = theme.hgss:settingsChoiceTop(display.settingsModel())
+display.tapSettings(120, choiceTop + 36)
+T.eq(run.loader.modOptions.kanto_gear.language, "de",
+  "an explicit language choice changes the live setting")
+display.tapSettings(120, choiceTop + 11)
+T.eq(run.loader.modOptions.kanto_gear.language, "en",
+  "the English choice restores the original language")
+display.tapSettings(10, 10)
+T.eq(display.settings.option, nil,
+  "Back from an explanation returns to the category")
+display.tapSettings(223, 62)
+T.eq(display.settings.page, 2, "the section next arrow opens the second Settings page")
+display.tapSettings(186, 62)
+T.eq(display.settings.page, 1, "the section previous arrow returns to the first page")
 T.eq(theme.hgss:settingsHit(120, 200, settings), nil,
   "the page counter does not change a setting or page")
 T.eq(theme.hgss:settingsHit(37, 15, settings), nil,
@@ -719,7 +948,7 @@ T.eq(theme.hgss.partyActionStarted, nil,
 T.check(display.cycleSetting(motionRow, 1),
   "UI motion can be restored without restarting")
 run.loader.modOptions.kanto_gear.info_level = "spoiler"
-run.loader.modOptions.kanto_gear.battle_view = "full"
+run.loader.modOptions.kanto_gear.ui_motion = false
 run.loader.modOptions.kanto_gear.display_mode = "combined"
 run.loader.modOptions.kanto_gear.combined_layout = "side"
 display.runSettingsAction("reset_options")
@@ -732,8 +961,8 @@ T.eq(run.loader.modOptions.kanto_gear.caught_icon, true,
   "resetting options returns to the Silph Link default theme")
 T.eq(run.loader.modOptions.kanto_gear.info_level, "enhanced",
   "resetting options does not preserve a migrated research mode")
-T.eq(run.loader.modOptions.kanto_gear.battle_view, "standard",
-  "resetting options restores the standard battle view")
+T.eq(run.loader.modOptions.kanto_gear.ui_motion, true,
+  "resetting options restores UI motion")
 T.eq(run.loader.modOptions.kanto_gear.display_mode, "separate",
   "resetting options restores the canonical display mode")
 T.eq(run.loader.modOptions.kanto_gear.combined_layout, "auto",
@@ -781,6 +1010,15 @@ T.check(display.pokedexHabitatPlan(otherSave) ~= updated,
   "a rebuilt dex never reuses a previous save's cached plan")
 love.timer.getTime = originalTime
 assert(loadfile(path .. "/tests/pss_runtime_cases.lua"))()(T, display, tap)
+display.pss:open()
+local priorMods = game.mods
+game.mods = run.loader
+if display.pss.session then
+  T.eq(display.pss.session:profileValid(), false, "Gen 2 respects the real online permission gate")
+  T.eq(display.pss.session.notice, "RECOMP BLOCKS UI MODS", "Gen 2 explains restricted online actions")
+else T.check(not pcall(require,"src.online.union.Room"),"older host has a read-only online browser") end
+game.mods = priorMods
+display.pss:close()
 do
   -- Actual compose hook, local relay, and hidden Gear: no public connection.
   local Client, Connect = require("src.online.Client"), require("src.online.Connect")
@@ -802,10 +1040,7 @@ do
   local clock=20
   love.timer.getTime=function() return clock end
   local function setCompose(name,value)
-    for i=1,debug.getinfo(composeHook,"u").nups do
-      if debug.getupvalue(composeHook,i)==name then debug.setupvalue(composeHook,i,value); return end
-    end
-    error("missing compose upvalue "..name)
+    assert(loadfile(path .. "/tests/support/runtime.lua"))().set(composeHook,name,value)
   end
   local function frame()
     setCompose("dirty",false)
