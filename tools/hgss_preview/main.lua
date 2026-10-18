@@ -110,6 +110,13 @@ for slot, mon in ipairs(party) do
   mon.typeLabel = language.types[mon.type] or mon.type
   mon.type2Label = language.types[mon.type2] or mon.type2
 end
+
+local previewPokerus = os.getenv("KANTO_GEAR_PREVIEW_POKERUS")
+if previewPokerus and os.getenv("KANTO_GEAR_PREVIEW_GEN") ~= "1" then
+  for slot, mon in ipairs(party) do mon.pokerus = slot % 2 == 0 and "cured" or "active" end
+  party[1].levelText = format("L%d", 100)
+  if previewPokerus == "cured" then party[1].pokerus = "cured" end
+end
 if os.getenv("KANTO_GEAR_PREVIEW_STATUSES") == "all" then
   for slot, status in ipairs({ "PAR", "SLP", "PSN", "BRN", "FRZ", "FNT" }) do
     party[slot].statusId = status
@@ -719,7 +726,7 @@ function love.load()
   local partySwapTransition = screen == "party_swap_transition"
   local partySwapCommit = screen == "party_swap_commit"
   local swapMode = partySwap or partySwapTransition or partySwapCommit
-  local context, summary = screen == "context", screen == "summary"
+  local context, summary = screen == "context", screen == "summary" or screen == "summary_shared"
   local moves = screen == "summary_moves"
   local summaryMoveInfo = screen == "summary_move_info"
   local memo = screen == "summary_memo"
@@ -1648,6 +1655,34 @@ function love.load()
     category = "ONLINE", action = "GET", state = "get",
     description = { "ONLINE PLAYER DISPLAY.",
       "SEE WHO IS ONLINE AND PLAYING.", "PREVIEW: VIEWING ONLY." } })
+  local previewModules
+  if os.getenv("KANTO_GEAR_PREVIEW_MODULES") == "1" then
+    local runtime = { home = {}, storeCatalog = {}, storeById = {},
+      homeCatalog = { packages = {}, surfaces = {} } }
+    local registry = assert(loadfile(root .. "/mod/kanto_gear/runtime/modules.lua"))()(
+      { hgss = theme, i18n = i18n }, runtime, { log = { info = function() end,
+        warn = function(_, message) error(message) end } }, {})
+    local rows = {}
+    for y = 0, 23 do
+      rows[#rows + 1] = (y == 2 or y == 21) and (".." .. string.rep("o", 20) .. "..")
+        or (y > 2 and y < 21) and ("..o" .. string.rep("a", 18) .. "o..") or string.rep(".", 24)
+    end
+    for index, entry in ipairs({
+      { "sample", "TOOLS", "FELDNOTIZEN", { pal = { a = "3ea04c" }, rows = rows }, "green" },
+      { "runner", "PARTY", "TEAMHELFER", function(x, y) theme:v4Icon("runner", x, y) end, "red" },
+    }) do
+      assert(registry.exports.register({ id = entry[1], label = entry[2], category = "TRAINER TOOL",
+        description = { "CHECK YOUR TEAM AT A GLANCE.", "AN APP FROM ANOTHER MOD." },
+        icon = entry[4], accent = entry[5], open = function() return true end,
+        translations = { de = { [entry[2]] = entry[3], ["TRAINER TOOL"] = "ERWEITERUNG" } } }))
+      local app = runtime.storeById[entry[1]]
+      app.state, app.action = index == 1 and "get" or "open", index == 1 and "GET" or "OPEN APP"
+      app.publisher = "COMMUNITY"
+      table.insert(storeCatalog, index, app)
+    end
+    registry.applyAvailability({ generation = gen1 and 1 or 2, gen3 = false })
+    previewModules = runtime.homeCatalog
+  end
   for _, app in ipairs(storeCatalog) do
     if app.id == "party" then
       app.preview = { party = {}, drawPokemon = function(row, x, y, size)
@@ -2424,6 +2459,10 @@ function love.load()
       },
     }
     catalog.packages.daycare, catalog.packages.calendar = { installed = true }, { installed = true }
+    if previewModules then
+      for id, item in pairs(previewModules.surfaces) do catalog.surfaces[id] = item end
+      for id, item in pairs(previewModules.packages) do item.installed = true; catalog.packages[id] = item end
+    end
     local layout = { tiles = {
       { id = "explorer_widget", page = 1, column = 1, row = 1 },
       { id = "party_widget", page = 1, column = 8, row = 1 },
@@ -2432,6 +2471,7 @@ function love.load()
       { id = "store_app", page = 1, column = 7, row = 2 },
       { id = "settings_app", page = 1, column = 10, row = 2 },
     } }
+    if previewModules then layout.tiles[3].id, layout.tiles[4].id = "sample_app", "runner_app" end
     if screen == "home-pss" then
       layout.tiles[3].id = "pss_app"
     elseif screen == "home-bag" then
@@ -3210,7 +3250,12 @@ function love.load()
     local function summaryPortrait(_, x, y, size, fainted)
       drawPortrait(slot, x, y, size, fainted)
     end
-    if memo then
+    if screen == "summary_shared" then
+      mon.expLabel, mon.nextLabel = translate("EXP"), translate("TO NEXT")
+      mon.type = gen1 and "NORMAL" or "WATER"
+      local Page = assert(loadfile(root .. "/mod/kanto_gear/ui/pages/summary.lua"))()
+      Page.draw(theme, { pages = 3, page = 1 }, mon, summaryPortrait, translate)
+    elseif memo then
       assert(not gen1, "Gen 1 summaries only have two pages")
       theme:summaryMemo(mon, summaryPortrait)
     elseif moves or movesTransition or memoTransition then
