@@ -17,6 +17,16 @@ def git(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT)
 
 
+def write_package(output, files):
+    with zipfile.ZipFile(output, "w") as archive:
+        for name, body in sorted(files.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, body)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sync-ignore", action="store_true", help="refresh Modkit's exact test exclusion list; commit it before packing")
@@ -31,7 +41,8 @@ def main():
     if git("status", "--porcelain", "--untracked-files=no", "--", "mod/kanto_gear").strip():
         parser.error("commit every intended mod change before packing")
     commit = git("rev-parse", "HEAD").decode().strip()
-    source = zipfile.ZipFile(io.BytesIO(git("archive", "--format=zip", "HEAD", "mod/kanto_gear")))
+    source = zipfile.ZipFile(io.BytesIO(git("-c", "core.autocrlf=false", "-c", "core.eol=lf",
+                                          "archive", "--format=zip", "HEAD", "mod/kanto_gear")))
     ignored = set(source.read(PREFIX + ".modkitignore").decode().splitlines())
     files = {name[len(PREFIX):]: source.read(name) for name in source.namelist()
              if name.startswith(PREFIX) and not name.endswith("/") and name[len(PREFIX):] not in ignored
@@ -62,12 +73,7 @@ def main():
                 "vendor/qrencode.lua", "ui/fonts/HGSS_PIXEL_FONT_LICENSE.txt", "ASSET_CREDITS.txt"}
     assert required <= files.keys(), "feature or license files are missing"
     output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, "w") as archive:
-        for name, body in sorted(files.items()):
-            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, body)
+    write_package(output, files)
     with zipfile.ZipFile(output) as archive:
         assert archive.testzip() is None
         assert set(archive.namelist()) == set(files)

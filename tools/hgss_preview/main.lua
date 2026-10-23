@@ -1647,6 +1647,18 @@ function love.load()
       description = { "PLAN ROUTES AND REMINDERS.",
         "KEEP CLUES CLOSE AT HAND.", "COMING SOON FROM SILPH LABS." } },
   }
+  if not gen1 then
+    storeCatalog[#storeCatalog + 1] = { id = "pokegear", icon = "pokegear", label = "POKEGEAR",
+      category = "TRAINER TOOL", action = "GET", state = "get",
+      description = { "OPEN YOUR ORIGINAL POKEGEAR.",
+        "CLOCK, MAP, PHONE AND RADIO.", "USES THE CARDS YOU HAVE RECEIVED." } }
+  end
+  if os.getenv("KANTO_GEAR_PREVIEW_STORE_APP") == "pokenav" then
+    storeCatalog[#storeCatalog + 1] = { id = "pokenav", icon = "pokenav", label = "POKENAV",
+      category = "TRAINER TOOL", action = "GET", state = "get",
+      description = { "OPEN YOUR ORIGINAL POKENAV.",
+        "MAP, CONDITION AND TRAINER INFO.", "KEEP EXPLORING WHILE USING IT." } }
+  end
   storeCatalog[#storeCatalog + 1] = { id = "achievements", icon = "achievements", label = "ACHIEVEMENTS",
     category = "ADVENTURE", action = "GET", state = "get",
     description = { "COLLECT STAMPS FOR YOUR JOURNEY.",
@@ -2459,6 +2471,18 @@ function love.load()
       },
     }
     catalog.packages.daycare, catalog.packages.calendar = { installed = true }, { installed = true }
+    local deviceShortcuts = assert(loadfile(root .. "/mod/kanto_gear/core/device_shortcuts.lua"))()
+    if screen == "home-device-shortcuts" then
+      catalog.packages.pokegear, catalog.packages.pokenav = { installed = true }, { installed = true }
+      for _, def in ipairs(deviceShortcuts) do
+        local eyes = def.target == "contacts" and os.getenv("KANTO_GEAR_PREVIEW_DEVICE") == "rs"
+        catalog.surfaces[def.package .. "_" .. def.target .. "_widget"] = {
+          package = def.package, kind = "widget", widget = "device", columns = 4,
+          icon = eyes and "pn_eyes" or def.icon, label = eyes and "TRAINER'S EYES" or def.label,
+          accent = def.package == "pokegear" and "blue" or "green",
+        }
+      end
+    end
     if previewModules then
       for id, item in pairs(previewModules.surfaces) do catalog.surfaces[id] = item end
       for id, item in pairs(previewModules.packages) do item.installed = true; catalog.packages[id] = item end
@@ -2472,7 +2496,14 @@ function love.load()
       { id = "settings_app", page = 1, column = 10, row = 2 },
     } }
     if previewModules then layout.tiles[3].id, layout.tiles[4].id = "sample_app", "runner_app" end
-    if screen == "home-pss" then
+    if screen == "home-device-shortcuts" then
+      layout.tiles = {}
+      for index, def in ipairs(deviceShortcuts) do
+        layout.tiles[index] = { id = def.package .. "_" .. def.target .. "_widget",
+          page = math.floor((index - 1) / 6) + 1,
+          column = (index - 1) % 3 * 4 + 1, row = math.floor((index - 1) % 6 / 3) + 1 }
+      end
+    elseif screen == "home-pss" then
       layout.tiles[3].id = "pss_app"
     elseif screen == "home-bag" then
       layout.tiles[3].id = "bag_app"
@@ -3036,6 +3067,22 @@ function love.load()
       index = tonumber(os.getenv("KANTO_GEAR_PREVIEW_INDEX")) or 2 },
       playerTeam, enemyTeam)
   elseif battleMessage then
+    local messageCase = os.getenv("KANTO_GEAR_PREVIEW_MESSAGE_CASE")
+    if messageCase == "ultraball" or messageCase == "missed" then
+      enemyTeam.wild, enemyTeam.name, enemyTeam.level = true, "MEWTWO", 70
+      theme:battleMessage({ "..." }, false, playerTeam, enemyTeam)
+      theme:battleMessage({ "LUCA USED" }, false, playerTeam, enemyTeam)
+      theme:battleMessage({ "LUCA USED", "ULTRA BALL!" }, false, playerTeam, enemyTeam)
+      theme:battleMessage({ "..." }, false, playerTeam, enemyTeam)
+      theme:battleMessage({ "LUCA USED", "ULTRA BALL!" }, false, playerTeam, enemyTeam)
+      assert(#theme.v4BattleLog.entries == 0, "current throw has no duplicate or placeholder in history")
+      if messageCase == "missed" then
+        theme:battleMessage({ "YOU MISSED THE" }, false, playerTeam, enemyTeam)
+        theme:battleMessage({ "YOU MISSED THE", "POKéMON!" }, true, playerTeam, enemyTeam)
+        assert(#theme.v4BattleLog.entries == 1 and theme.v4BattleLog.entries[1] == "LUCA USED ULTRA BALL!",
+          "only the previous complete throw remains in history")
+      end
+    else
     local wild = os.getenv("KANTO_GEAR_PREVIEW_BATTLE") == "wild"
     if wild then
       enemyTeam.name, enemyTeam.level = "RATTATA", 3
@@ -3049,6 +3096,7 @@ function love.load()
       os.getenv("KANTO_GEAR_PREVIEW_PROMPT") ~= "0",
       playerTeam, enemyTeam, nil,
       tonumber(os.getenv("KANTO_GEAR_PREVIEW_TIME")) or 0)
+    end
   elseif battleBagTransition then
     local mon = battleMon()
     local slot = gen1 and 6 or 1

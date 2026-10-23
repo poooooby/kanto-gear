@@ -4,13 +4,15 @@
 
 ### Silph Link OS — Your adventure. Reconnected.
 
-A DS-inspired companion for Pokémon **Red, Blue, Yellow, Gold, Silver, Crystal,
-Ruby, Sapphire, FireRed, LeafGreen and Emerald** in
-[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp).
+A DS-inspired Pokégear and C-Gear companion mod for **Pokémon Gen 1–3** in
+[Gen1Recomp](https://github.com/bryanthaboi/gen1recomp): Red, Blue, Yellow,
+Gold, Silver, Crystal, Ruby, Sapphire, FireRed, LeafGreen and Emerald.
+Play on Android, Windows or Linux, with an optional phone browser display.
 
 <p>
   <a href="https://github.com/AverageConsumer/kanto-gear/releases/latest"><img src="https://img.shields.io/github/v/release/AverageConsumer/kanto-gear?label=release&color=5c8a3c" alt="Latest release"></a>
   <a href="https://github.com/AverageConsumer/kanto-gear/releases"><img src="https://img.shields.io/github/downloads/AverageConsumer/kanto-gear/total?label=downloads&color=2f81f7" alt="Total downloads"></a>
+  <a href="https://github.com/AverageConsumer/kanto-gear/actions/workflows/ci.yml"><img src="https://github.com/AverageConsumer/kanto-gear/actions/workflows/ci.yml/badge.svg?branch=main" alt="Source and package checks"></a>
   <a href="https://bryanthaboi.github.io/gen1recomp-mod-index/"><img src="https://img.shields.io/badge/official-Mod%20Index-6f42c1" alt="Available in the Mod Index"></a>
 </p>
 
@@ -21,9 +23,15 @@ Ruby, Sapphire, FireRed, LeafGreen and Emerald** in
   <img src="screenshots/4.0-home-cgear-dark.png" width="24%" alt="C-Gear Dark Home">
 </p>
 
-**[Install from Mod Index](https://bryanthaboi.github.io/gen1recomp-mod-index/)
+**[Website](https://averageconsumer.github.io/kanto-gear/)
 · [Download ZIP](https://github.com/AverageConsumer/kanto-gear/releases/latest)
+· [Mod Index](https://bryanthaboi.github.io/gen1recomp-mod-index/)
 · [Report a problem](https://github.com/AverageConsumer/kanto-gear/issues)**
+
+<sub>[Get started](#get-started) · [Apps](#apps-and-tools) · [Progress](#progress-at-your-pace)
+· [Battles](#battles-your-way) · [Screens and phone](#one-screen-or-two)
+· [Languages](#languages-and-online) · [FAQ](#common-questions)
+· [Feedback](#feedback) · [Credits](#credits)</sub>
 
 </div>
 
@@ -38,6 +46,23 @@ Arrange your own Home pages with apps and widgets: long-press to edit, then
 add, move or remove tiles. Silph Store lets you enable the optional apps you want.
 The clock can follow the game or your device.
 
+## Get started
+
+1. Install [Gen1Recomp 0.3.93 or newer](https://github.com/bryanthaboi/gen1recomp/releases/latest)
+   and import your own supported ROM.
+2. Install **Kanto Gear** from the [Mod Index](https://bryanthaboi.github.io/gen1recomp-mod-index/),
+   or import the ZIP from the [latest release](https://github.com/AverageConsumer/kanto-gear/releases/latest).
+3. Enable the mod, start your game and open Gear's **Options** to choose your layout,
+   theme, language and discovery level.
+
+The same ZIP works on Android, Windows and Linux. It includes no ROM or save.
+Kanto Gear 4.4.1 requires **Gen1Recomp 0.3.93 or newer (mod API 3)**.
+Update Recomp before importing this version. Recomp 0.3.92 and earlier cannot
+load it; keep Kanto Gear 4.3.1 if you are staying on an older host.
+
+All Gen 3 games welcome broader playthrough testing and feedback. Some specialized
+contest, Frontier and other native screens remain on the game screen.
+
 ## Apps and tools
 
 | App | What it does |
@@ -51,17 +76,22 @@ The clock can follow the game or your device.
 | **Notes** | Keep general or location-linked text notes, checklists and colored drawings. QWERTY and QWERTZ are available. |
 | **Day-Care** | Check boarded Pokémon, current levels, withdrawal fees and moves at pickup. In Gen 2 and 3, also check breeding compatibility, waiting eggs and party eggs. FireRed/LeafGreen keep the Route 5 boarder separate from the Four Island pair. |
 | **Calendar** | In Gen 2, browse weekly visitors, time windows, ready rematches and gifts. Hoenn shows the current game day with a 24-hour clock, tides, upcoming berry harvests and ready activities. FireRed/LeafGreen show VS Seeker charge and ready trainers. Timing follows the game's clock. |
+| **Pokégear** | Open the original device in Gold, Silver and Crystal on the touch screen, with the cards you have received. Keep walking on the game screen while using its clock, map, phone or radio below. |
+| **PokéNav** | Open the original device in Ruby, Sapphire and Emerald below while the game keeps its normal controls above. Available features follow your progress in the game. |
 | **Field Kit** | Contextual shortcuts for tools and field moves, including rods, Bicycle, Item Radar and travel. Currently usable actions appear first. |
 | **Trainer Card** | Your trainer details, regional badges, play time and native records, including the game's card rank where available. |
 | **Step Counter** | Track movement, milestones and a resettable session counter. |
 | **Silph Connect** | See online players and their reported edition, location and status through Recomp's shared connection. The connection stays active when you leave the app. |
-| **Silph Store** | Manage your installed Gear apps and discover what to add to Home. |
+| **Silph Store** | Manage your installed Gear apps and discover what to add to Home. Compatible apps from other installed Recomp mods can appear here too. |
 
 Home widgets cover the live Explorer map, lead partner, whole team, Pokédex,
 region map, Bag, Trainer Card, steps, Stamps, Silph Connect, Day-Care, Calendar
 and individual field tools. The Calendar is available in Gen 2 and 3; the egg
 widget is available in games that support breeding. Egg contents, progress,
 breeding odds and event schedules follow your information settings.
+Installing Pokégear or PokéNav also offers optional widgets that open an
+individual card or main-menu feature directly. Add them from Home's Widgets
+tab; each shortcut respects the game's device and feature unlocks.
 
 <p align="center">
   <img src="screenshots/4.0-explorer-layer-pokegear-light.png" width="49%" alt="Explorer map, encounter cards and progress tabs">
@@ -123,28 +153,7 @@ when Gear cannot safely take ownership.
   <img src="screenshots/4.0-battle-moves-cgear-dark.png" width="49%" alt="C-Gear move selection">
 </p>
 
-## Get started
-
-1. Install the [latest official Gen1Recomp](https://github.com/bryanthaboi/gen1recomp/releases/latest)
-   and import your own supported ROM.
-2. Install **Kanto Gear** from the [Mod Index](https://bryanthaboi.github.io/gen1recomp-mod-index/),
-   or import the ZIP from the [latest release](https://github.com/AverageConsumer/kanto-gear/releases/latest).
-3. Enable the mod, start your game and open Gear's **Options** to choose your layout,
-   theme, language and discovery level.
-
-The same ZIP works on Android, Windows and Linux. It includes no ROM or save.
-Use the current Recomp release for host fixes and secondary-screen input support.
-
-| Games | Minimum Recomp version |
-| --- | --- |
-| Red, Blue, Yellow, Gold, Silver, Crystal, FireRed, LeafGreen | 0.3.20 |
-| Emerald (US 1.0) | 0.3.33 |
-| Ruby and Sapphire (US/Europe) | 0.3.74 |
-
-All Gen 3 games welcome broader playthrough testing and feedback. Some specialized
-contest, Frontier and other native screens remain on the game screen.
-
-### One screen or two
+## One screen or two
 
 | Layout | Use it for |
 | --- | --- |
@@ -157,6 +166,20 @@ contest, Frontier and other native screens remain on the game screen.
 for text and animations on single-screen layouts. **Performance** keeps maps smooth
 while disabling UI transitions; **Quality** allows optional interface animations.
 Both preserve map detail.
+
+### AYANEO Pocket DS display workaround
+
+If the bottom display is not recognized or the game becomes zoomed/cropped on
+the upper display after swapping screens, a Pocket DS user reported this workaround:
+
+1. Open the **Gallery** app on the **bottom screen**.
+2. Launch **Gen1Recomp** on the **top screen**.
+
+If Recomp is already running on the top screen, opening Gallery on the bottom
+screen also restored display detection and correct scaling for the reporter.
+This appears related to how the device initializes its secondary display; the
+cause has not been confirmed. See [issue #13](https://github.com/AverageConsumer/kanto-gear/issues/13#issuecomment-5305740419)
+for the affected setup and confirmation of the workaround.
 
 ### Gear on your phone
 
@@ -187,7 +210,7 @@ input keep their normal update rate.
 If the shown address belongs to a VPN, use the game device's private Wi-Fi
 IPv4 address with port 8765.
 
-### Languages and online
+## Languages and online
 
 English, German, Spanish (Spain), French, Japanese and Italian are available under
 **Options → Appearance → Language**. Some newer labels fall back to English.
@@ -216,11 +239,35 @@ remain available.
 *Images are rendered previews of the current interface with illustrative game data.
 Artwork and available information vary by edition and settings.*
 
+## Common questions
+
+### Is Kanto Gear an emulator or a standalone phone app?
+
+Kanto Gear is a Lua mod for Gen1Recomp. Recomp runs your game; Gear adds the
+companion interface. Phone / Browser mode lets another device display Gear
+over local Wi-Fi while the game keeps running on the host.
+
+### Do I need a dual-screen handheld?
+
+No. Fullscreen Swap and Combined work on a single screen. Separate supports
+dual-screen handhelds and desktop windows; Phone / Browser provides an optional
+second screen on another device.
+
+### Can other mods add apps to Silph Store?
+
+Yes. Separately installed Recomp mods can register compatible apps. See the
+[store module interface](DEVELOPMENT.md#third-party-store-modules) for examples
+and supported behavior. Silph Store does not download or update those mods.
+
 ## Feedback
 
-[Open an issue](https://github.com/AverageConsumer/kanto-gear/issues) with your game,
+[Open a bug report](https://github.com/AverageConsumer/kanto-gear/issues/new?template=bug_report.yml) with your game,
 device, Recomp and Gear versions, display and battle modes, other active mods,
 and steps to reproduce the problem. Screenshots and logs are welcome.
+
+For wording corrections, use the [translation form](https://github.com/AverageConsumer/kanto-gear/issues/new?template=translation.yml).
+See the [contributing guide](CONTRIBUTING.md) for code and translation contributions,
+or the [security policy](SECURITY.md) to report a vulnerability privately.
 
 [Release notes](https://github.com/AverageConsumer/kanto-gear/releases)
 · [Translation contributions](DEVELOPMENT.md#translations)

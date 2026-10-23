@@ -318,6 +318,8 @@ return function(
       settings = { installed = true, fixed = true },
       bag = { installed = false },
       pokedex = { installed = false },
+      pokegear = { installed = false },
+      pokenav = { installed = false },
       achievements = { installed = false },
       notes = { installed = false },
       pss = { installed = false },
@@ -361,6 +363,10 @@ return function(
         icon = "bag", accent = "amber", label = "BAG" },
       pokedex_app = { package = "pokedex", kind = "app", columns = 3,
         icon = "pokedex", accent = "red", label = "POKEDEX" },
+      pokegear_app = { package = "pokegear", kind = "app", columns = 3,
+        icon = "pokegear", accent = "blue", label = "POKEGEAR", hidden = true },
+      pokenav_app = { package = "pokenav", kind = "app", columns = 3,
+        icon = "pokenav", accent = "green", label = "POKENAV", hidden = true },
       achievements_widget = { package = "achievements", kind = "widget",
         widget = "achievements", columns = 12, label = "STAMPS" },
       achievements_app = { package = "achievements", kind = "app", columns = 3,
@@ -387,6 +393,15 @@ return function(
         icon = "calendar", accent = "blue", label = "CALENDAR" },
     },
   }
+  displayRuntime.deviceShortcuts = assert(load(mod:read("core/device_shortcuts.lua"),
+    "@kanto_gear/core/device_shortcuts.lua"))()
+  for _, def in ipairs(displayRuntime.deviceShortcuts) do
+    displayRuntime.homeCatalog.surfaces[def.package .. "_" .. def.target .. "_widget"] = {
+      package = def.package, kind = "widget", widget = "device", columns = 4,
+      deviceTarget = def.target, label = def.label, icon = def.icon,
+      accent = def.package == "pokegear" and "blue" or "green", hidden = true,
+    }
+  end
   for _, def in ipairs(THEME.fieldTools.widgets) do
     displayRuntime.homeCatalog.surfaces["tool_widget_" .. def.key] = {
       package = "tools", kind = "widget", widget = "tool", columns = 3,
@@ -438,6 +453,14 @@ return function(
       category = "ITEMS", reason = "ITEM POCKETS", target = "BAG",
       description = { "BROWSE EVERY ITEM BELOW.",
         "USE THE ORIGINAL GAME EFFECTS.", "NO MIRRORED BAG REQUIRED." } },
+    { id = "pokegear", icon = "pokegear", label = "POKEGEAR",
+      category = "TRAINER TOOL", target = "POKEGEAR", hidden = true,
+      description = { "OPEN YOUR ORIGINAL POKEGEAR.",
+        "CLOCK, MAP, PHONE AND RADIO.", "USES THE CARDS YOU HAVE RECEIVED." } },
+    { id = "pokenav", icon = "pokenav", label = "POKENAV",
+      category = "TRAINER TOOL", target = "POKENAV", hidden = true,
+      description = { "OPEN YOUR ORIGINAL POKENAV.",
+        "MAP, CONDITION AND TRAINER INFO.", "KEEP EXPLORING WHILE USING IT." } },
     { id = "trainer", icon = "trainer", label = "TRAINER CARD",
       category = "PROFILE", target = "TRAINER", fixed = true,
       description = { "REVIEW YOUR TRAINER JOURNEY.",

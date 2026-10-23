@@ -68,6 +68,7 @@ return function(
     local downstream = displayRuntime.perf:start()
     local result = next(stepGame, dt)
     local excluded = displayRuntime.perf:elapsed(downstream)
+    displayRuntime.stepDeviceApps(stepGame, dt)
     if moduleShown() then
       displayRuntime.perf:finish("gear_input", measured, excluded)
       return result
@@ -363,8 +364,7 @@ return function(
       -- No interaction occurred, so neither progress nor map rows changed.
       if event == "world.interacted" and payload and payload.kind == "none" then return end
       displayRuntime.explorer.data = nil
-      displayRuntime.achievements.stale, displayRuntime.achievements.job = true, nil
-      displayRuntime.achievements.currentData = nil
+      displayRuntime.invalidateAchievements(event == "pokemon.caught" and "dex" or nil)
       local home = displayRuntime.home
       if home and home.widgetCache and home.widgetCache.model.stamps then
         home.widgetCache = nil
@@ -413,6 +413,10 @@ return function(
 
   mod.hooks:wrap("battle.bottom_ui_visible", function(next, state)
     if next(state) == false then return false end
+    local presentation = displayRuntime.gen3Presentation
+    if displayRuntime.gen3 and presentation then
+      return not (presentation.owns and presentation.owns("panel"))
+    end
     local raw = battleState()
     local top = session.game and session.game.stack and session.game.stack:top()
     local owned = bottomOwnsBattleUI(
@@ -437,6 +441,10 @@ return function(
 
   mod.hooks:wrap("battle.status_hud_visible", function(next, state)
     if next(state) == false then return false end
+    local presentation = displayRuntime.gen3Presentation
+    if displayRuntime.gen3 and presentation then
+      return not (presentation.owns and presentation.owns("hud"))
+    end
     return not bottomOwnsBattleUI(
       fullBottomBattleUI(), session.active, hasDisplay(),
       session.displayReady, state, session.battle)
@@ -499,12 +507,14 @@ return function(
     mod.events:on(event, function() session.dirty = true end)
   end
 
-  mod.events:on("pokemon.level_up", function(payload)
-    local mon = payload and payload.mon
+  mod.events:on("pokemon.level_up", function()
     -- Gen 1 commits individual levels; Gen 2 emits several events after a
     -- single final stat write. Unchanged snapshots keep that full jump intact.
-    if mon and displayRuntime.levelUp.snapshots[mon]
-        and displayRuntime.levelUp:observe(mon) then session.dirty = true end
+    -- API 3 event records are detached. Read the live party so identity-based
+    -- stat baselines and native Rare Candy result ownership stay intact.
+    local game = session.game
+    if game and displayRuntime.levelUp:scan(game.save,
+        game.stack and game.stack:top()) then session.dirty = true end
   end)
 
   -- Upstream owns the display seam; this mod only supplies its companion frame.
@@ -611,12 +621,13 @@ return function(
     displayRuntime.perf:call("notes_flush", displayRuntime.notes.flush, displayRuntime.notes)
     if displayRuntime.notes:takeChanged() then session.dirty = true end
     displayRuntime.updateHomeLongPress(now)
-    -- Album work gets a short slice only while visible, independently of redraws.
-    -- The budget is cooperative: an individual map/group operation can overrun it.
-    if session.page == "ACHIEVEMENTS" and THEME.style == "hgss" and not session.battle
-        and (displayRuntime.achievements.job or displayRuntime.achievements.stale)
-        and hasDisplay() and screenState() == "active" then
-      displayRuntime.perf:call("stamps_album", displayRuntime.achievementData, false, true)
+    -- Installed Stamps prepares in short, throttled slices during normal play.
+    -- Menus, battles and loading retain priority over album preparation.
+    local stamps = displayRuntime.achievements
+    if THEME.style == "hgss" and not session.battle and not session.externalLoading
+        and displayRuntime.homeCatalog.packages.achievements.installed
+        and (stamps.job or stamps.stale) and hasDisplay() and screenState() == "active" then
+      displayRuntime.perf:call("stamps_album", displayRuntime.updateAchievements, now)
     end
     if now >= session.nextPoll then
       local pollStarted = displayRuntime.perf:start()

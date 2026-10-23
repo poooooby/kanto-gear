@@ -29,11 +29,13 @@ tests/gen1_gifts_test.lua
 tests/gen1_rewards_test.lua
 tests/gen2_compat_test.lua
 tests/gen2_gifts_test.lua
+tests/gen2_pokegear_app_test.lua
 tests/gen2_rewards_test.lua
 tests/gen3_battle_hints_test.lua
 tests/gen3_battle_presentation_test.lua
 tests/gen3_controls_test.lua
 tests/gen3_daycare_calendar_test.lua
+tests/gen3_device_app_test.lua
 tests/gen3_dex_cache_test.lua
 tests/gen3_dialogue_test.lua
 tests/gen3_field_test.lua
@@ -120,6 +122,7 @@ tests/recent_item_cases.lua
 tests/recent_item_gen3_cases.lua
 tests/region_map_runtime_test.lua
 tests/region_map_test.lua
+tests/regional_forms_cases.lua
 tests/render_stack_test.lua
 tests/rs_native_test.lua
 tests/rs_objectives_test.lua

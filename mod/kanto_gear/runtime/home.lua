@@ -30,7 +30,8 @@ return function(
       local level = mon.level or 1
       out[i] = {
         slot = i, species = mon.species, source = mon,
-        name = mon.nickname or (def and def.name) or mon.species,
+        name = mon.nickname or def.name or mon.name or mon.species,
+        types = mon.types,
         level = level, hp = mon.hp,
         maxHp = mon.stats and mon.stats.hp or mon.hp,
         status = mon.status, gender = mon.gender,
@@ -67,7 +68,7 @@ return function(
       or def.types and (def.types[2] or def.types[1])
     return {
       slot = mon.slot, name = isEgg and THEME:translate("EGG")
-        or mon.name or source.nickname or def.name,
+        or source.nickname or mon.name or def.name or source.name,
       egg = isEgg,
       gender = mon.gender == "M" and "male" or mon.gender == "F" and "female" or mon.gender,
       hp = mon.hp, maxHp = maxHp,
@@ -165,8 +166,15 @@ return function(
 
   function displayRuntime.homePageElements()
     local home = displayRuntime.home
+    displayRuntime.refreshDeviceSurfaces()
     local tiles = displayRuntime.Home.tiles(home.layout,
       displayRuntime.homeCatalog, home.page)
+    for _, tile in ipairs(tiles) do
+      local surface = displayRuntime.homeCatalog.surfaces[tile.id]
+      if surface.package == "pokegear" or surface.package == "pokenav" then
+        tile.disabled = not displayRuntime.canOpenDeviceApp(surface.package, surface.deviceTarget)
+      end
+    end
     local slots = home.editing and displayRuntime.Home.plusSlots(
       home.layout, displayRuntime.homeCatalog, home.page, home.swapSource)
       or nil

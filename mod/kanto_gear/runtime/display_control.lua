@@ -125,14 +125,12 @@ return function(
   end
 
   mod.events:on("game.ready", function(payload)
+    displayRuntime.closeDeviceApp()
     session.toolArmed = nil
     displayRuntime.clearExplorerSnapshot()
     displayRuntime.pss:close()
     displayRuntime.localSummary, displayRuntime.nativeSummary = nil, nil
     displayRuntime.touchChoice = nil
-    if displayRuntime.gen3Pointer then
-      displayRuntime.gen3Pointer:release(); displayRuntime.gen3Pointer = nil
-    end
     if displayRuntime.gen3Presentation then
       displayRuntime.gen3Presentation:release(); displayRuntime.gen3Presentation = nil
     end
@@ -163,11 +161,7 @@ return function(
         local path = "adapters/gen3/" .. name .. ".lua"
         return assert(load(mod:read(path), "@kanto_gear/" .. path))()(function(name) return mod:read(name) end)
       end
-      displayRuntime.gen3Pointer = assert(load(mod:read("adapters/gen3/pointer.lua"),
-        "@kanto_gear/adapters/gen3/pointer.lua"))().new(session.game, function(action, x, y)
-        return displayRuntime.primaryTouch(action, x, y)
-      end)
-      displayRuntime.gen3 = loadAdapter("init").new(session.game)
+      displayRuntime.gen3 = loadAdapter("init").new(session.game, mod.content)
       displayRuntime.gen3Field = assert(load(mod:read("adapters/gen3/field.lua"), "@kanto_gear/adapters/gen3/field.lua"))().new(displayRuntime.gen3, mod.world)
       displayRuntime.gen3Progress = loadAdapter("progress").new(displayRuntime.gen3)
       displayRuntime.gen3Ui = loadAdapter("ui").new(displayRuntime.gen3, THEME.hgss, displayRuntime.ChoicePage, displayRuntime.NamingPage, displayRuntime.StoragePage, displayRuntime.ItemPage, displayRuntime.MovePage,
@@ -212,7 +206,7 @@ return function(
         return true
       end, hgssRuntime.rootDirection, displayRuntime.PartyPage.direction, function(native, input)
         return displayRuntime.gen3Ui:navigate(native, session.battle, input)
-      end)
+      end, mod)
     end
     displayRuntime.homeCatalog.packages.achievements.available = true
     displayRuntime.storeById.achievements.available = true
@@ -220,6 +214,7 @@ return function(
     local gen1 = not displayRuntime.gen3 and not (session.game.save and session.game.save.generation == 2)
     displayRuntime.homeCatalog.surfaces.daycare_small_widget.hidden = gen1
     if displayRuntime.applyCalendarSupport then displayRuntime.applyCalendarSupport() end
+    displayRuntime.applyDeviceSupport()
     -- third-party store modules decide their availability for this game
     displayRuntime.gearModules.applyAvailability({
       edition = require("src.core.GameVersion").get(),

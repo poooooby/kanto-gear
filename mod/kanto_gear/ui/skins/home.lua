@@ -150,7 +150,9 @@ return function(H, ui, K)
     map = "blue", tools = "amber", store = "red", settings = "slate", bag = "amber",
     pokedex = "red", trainer = "blue", steps = "green", achievements = "amber",
     party = "red", explorer = "green", notes = "amber", pss = "blue",
-    daycare = "red", calendar = "blue",
+    daycare = "red", calendar = "blue", pokegear = "blue", pokenav = "green",
+    pg_clock = "blue", pg_phone = "blue", pg_radio = "blue", pn_map = "green",
+    pn_condition = "green", pn_matchcall = "green", pn_eyes = "green", pn_ribbons = "green",
   }
   local ACCENTS = {
     pokegear = { blue = hex("3878d0"), amber = hex("e09a20"), red = hex("e04838"),
@@ -209,7 +211,6 @@ return function(H, ui, K)
     CIRC(bx + 5, by + 5, d - 10, a.D)
     CIRC(bx + 6, by + 6, d - 12, hex("fbfbf4"))
     CIRCrows(bx + 6, by + 6, d - 12, floor((d - 12) / 2) + 2, d, hex("eceee6"))
-    R(bx + 9, by + 2, 8, 1, a.Hi); R(bx + 7, by + 3, 3, 1, a.Hi)
     if icon then drawIcon(icon, bx + 6, by + 6, d - 12) end
     local py = y + h - 5 - plateH
     RR(x + 4, py, w - 8, plateH, 3, colors.outline)

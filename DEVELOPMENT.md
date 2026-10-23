@@ -69,6 +69,45 @@ The QR library under `vendor/` is third-party code with its own license.
 
 ## Tests and previews
 
+The Pokégear and PokéNav Store apps use detached native device state in
+`runtime/device_apps.lua`. Their private touch input never consumes or queues
+game buttons, and their device layers must not remain on the game's modal
+stack. Native-menu openings retain their normal screens and controls. PokéNav
+features without a Gear projection draw their native pixels below, with local
+touch keys; the field keeps hardware input.
+Installing either device also offers optional Home widgets for its individual
+cards or main-menu features. Shortcuts use the device's own unlock inventory,
+enter the native section once its opening animation finishes, and retain the
+same private touch input as the full app.
+
+### API 3 host contract
+
+Gear opts into API 3, available in Gen1Recomp 0.3.93 and newer. The release
+fixtures use the exact 0.3.95 source
+(`2b45436abffc31100d3cb599c6cc09d00c1ddac3`). API 2 hosts are rejected by
+the manifest.
+
+Gen 3 definitions come from `mod.content` and battle snapshots/intents from
+`mod.battle`. Keep native species/item indices at storage, sprite and native
+menu boundaries. Native HP/EXP animation remains authoritative over the
+presentation. API 3 event Pokémon are detached records: never use their
+table identity as a live party/save identity.
+
+Use `mod:supports` to select native battle panel/HUD visibility hooks instead
+of replacing draw functions. Native window handlers provide `input.pointer`;
+Gear does not install the former Gen 3 pointer fallback. Menu geometry, OAM
+filtering and other interfaces without an equivalent public contract retain
+their focused native adapters. In particular, Gen 3 field-action queries in
+this SDK still lack the complete map/escape/waterfall/fishing context, so the
+existing Field Kit adapter remains necessary. Online eligibility and native
+arena restrictions are unchanged.
+
+Headless Gen 3 fixtures must expose the native Pokémon, move and item datasets
+as `Game3:_exposeModData` does before loading mods. `tools/test_loader.lua`
+serves the configured cache through `CacheFs.readActive` for native fonts and
+text; use caches imported by a matching SDK. Source archives, ROMs and imported
+assets stay local and are excluded from packages.
+
 Use Python 3, LuaJIT and a matching Recomp SDK checkout with locally imported
 game data. Copy `tools/test-config.example.json` to the Git-ignored
 `tools/test.local.json` and fill in the SDK/cache paths. Node, Playwright and
@@ -250,3 +289,65 @@ packaged file, manifest field and license. `dist/kanto_gear-<version>.zip`
 follows the committed manifest; its report records the source commit and
 SHA-256 hashes. Tests, SDK files and imported game assets are not distributed.
 This is a Lua mod ZIP, with no native engine or APK signer.
+
+## GitHub checks and releases
+
+Every branch push and pull request runs ROM-free checks on GitHub: YAML parsing,
+issue form IDs, local documentation links and anchors, LuaJIT compilation of all
+Lua files, release-verifier regression tests and two reproducible package builds.
+Archive exports use LF line endings and fixed ZIP metadata independently of local
+Git settings and the host operating system.
+
+The resulting ZIP, verification JSON and SHA-256 file are retained as CI artifacts.
+Actions are pinned to exact commits; Dependabot proposes weekly action updates.
+Game-data fixtures and on-device playthrough checks remain local.
+
+To run the same checks locally, install LuaJIT and `PyYAML==6.0.3`, commit the
+intended source, then use an empty output directory:
+
+```powershell
+python -m unittest discover -s tools -p ci_test.py
+python tools/ci.py --output-dir diagnostics/ci-assets
+```
+
+Before publishing a version, audit every worktree involved and finish the local
+tests and feature inventory described above. Update the manifest version and copy
+`.github/release-template.md` to `release-notes/v<version>.md`, filling in changes
+for players. Commit the complete slice to `main` and wait for green CI. Only then
+create and push its `v<version>` tag.
+
+The tag workflow reruns CI, checks that the tag matches the manifest and belongs
+to `main`, and requires committed release notes. A separate publication job
+downloads that run's artifacts and compares every ZIP file and report hash with
+the exact tagged source before publishing. It attaches the ZIP, verification JSON
+and `.sha256` file, using the committed notes as the release description. It does
+not replace an existing release or its assets. Only that publication job has
+repository write permission; pull request checks have read-only access.
+If a tag push does not start Actions, dispatch the same workflow against that
+existing tag with `gh workflow run release.yml --ref v<version>`. The dispatch
+uses the same tag/source checks and publication job; dispatching `main` fails
+the release-tag check and cannot publish.
+
+For a downloaded release, run `sha256sum --check kanto_gear-<version>.sha256`
+beside the ZIP. The verification JSON also records the source commit, engine
+requirement and per-file hashes. These checks identify a Lua mod package; they
+do not replace the release audit or the tests that need imported game data.
+
+## Public website
+
+The public website lives in `site/`. The Website workflow publishes it to GitHub
+Pages after site changes on `main` and after a successful Release workflow.
+It can also be dispatched manually on `main`. Before upload,
+`tools/build_site.py` loads the latest stable release and its tagged manifest,
+checks the official ZIP, and writes matching version, engine requirement and
+download links into the static HTML. Visitors make no GitHub API requests.
+The site currently has no visitor analytics; look and theme preferences use
+browser-local storage. Keep analytics credentials out of source control.
+
+To build a local preview, choose a new output directory:
+
+```powershell
+python -m unittest discover -s tools -p site_test.py
+python tools/build_site.py --output diagnostics/site-preview/local-build
+python -m http.server 8767 --bind 127.0.0.1 --directory diagnostics/site-preview/local-build
+```
