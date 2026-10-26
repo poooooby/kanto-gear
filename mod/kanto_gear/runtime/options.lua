@@ -65,6 +65,7 @@ return function(
   for _, row in ipairs(Discovery.options) do SettingsInfo.help[Discovery.key(row[1])] = row[5] end
   SettingsInfo.help.discovery_section = "Choose an information category to customize. Changes apply across Gear."
 
+  local displaySetup = mod.cache and mod.cache.read and mod.cache:read("display/setup-v1")
   THEME.displayModeDefault, THEME.combinedLayoutDefault = THEME:displayDefaults(
     function(key) return mod.options:get(key) end)
 
@@ -116,7 +117,7 @@ return function(
         key = "theme_v3", not_one_of = { "hgss", "hgss_dark", "hgss_auto", "cgear", "cgear_dark", "cgear_auto" },
       } },
     { key = "display_mode", label = "DISPLAY MODE", type = "choice",
-      default = THEME.displayModeDefault, reset_default = "separate", choices = {
+      default = THEME.displayModeDefault, reset_default = "combined", choices = {
         { "FULLSCREEN SWAP", "fullscreen" },
         { "COMBINED SCREEN", "combined" },
         { "SEPARATE SCREENS", "separate" },
@@ -203,7 +204,63 @@ return function(
       type = "toggle", default = false, visible_if = {
         key = "theme_v3", one_of = { "hgss", "hgss_dark", "hgss_auto", "cgear", "cgear_dark", "cgear_auto" },
       } },
+    { key = "notifications", label = "NOTIFICATIONS",
+      type = "toggle", default = true },
+    { key = "notification_sound", label = "NOTIFICATION SOUND",
+      type = "toggle", default = true, visible_if = {
+        key = "notifications", equals = true,
+      } },
+    -- What, how and when: one switch per area, then timing and placement.
+    { key = "notice_shiny", label = "SHINY HUNT", type = "choice", default = "full",
+      choices = {
+        { "WITH SOUND", "full" }, { "SILENT", "silent" }, { "DOT ONLY", "dot" }, { "OFF", "off" },
+      } },
+    { key = "notice_moments", label = "MOMENTS", type = "choice", default = "full",
+      choices = {
+        { "WITH SOUND", "full" }, { "SILENT", "silent" }, { "DOT ONLY", "dot" }, { "OFF", "off" },
+      } },
+    { key = "notice_daycare", label = "DAY-CARE", type = "choice", default = "full",
+      choices = {
+        { "WITH SOUND", "full" }, { "SILENT", "silent" }, { "DOT ONLY", "dot" }, { "OFF", "off" },
+      } },
+    { key = "notice_calendar", label = "CALENDAR", type = "choice", default = "silent",
+      choices = {
+        { "WITH SOUND", "full" }, { "SILENT", "silent" }, { "DOT ONLY", "dot" }, { "OFF", "off" },
+      } },
+    { key = "notice_stamps", label = "STAMPS", type = "choice", default = "full",
+      choices = {
+        { "WITH SOUND", "full" }, { "SILENT", "silent" }, { "DOT ONLY", "dot" }, { "OFF", "off" },
+      } },
+    { key = "notice_shiny_timing", label = "SHINY CHIME", type = "choice", default = "now",
+      choices = { { "AT ONCE", "now" }, { "WITH CARD", "after" } }, visible_if = {
+        key = "notifications", equals = true,
+      } },
+    { key = "notice_duration", label = "CARD TIME", type = "choice", default = "normal",
+      choices = { { "SHORT", "short" }, { "NORMAL", "normal" }, { "LONG", "long" } }, visible_if = {
+        key = "notifications", equals = true,
+      } },
+    { key = "notice_where", label = "GEAR HIDDEN", type = "choice", default = "over",
+      choices = { { "OVER GAME", "over" }, { "WAIT", "wait" } }, visible_if = {
+        key = "notifications", equals = true,
+      } },
   }, Discovery.initialPolicy)
+
+  -- Inspect persisted values before define() makes schema defaults readable.
+  -- Older users could keep Separate without ever explicitly saving that row.
+  local hasSettings = mod.options:get("window_layout") ~= nil or mod.options:get("profile") ~= nil
+  for _, row in ipairs(THEME.optionSchema) do
+    if mod.options:get(row.key) ~= nil then hasSettings = true; break end
+  end
+  THEME.displaySetupFresh = displaySetup == "pending" or displaySetup == nil and not hasSettings
+  local legacyInstallation = displaySetup == nil and hasSettings
+  THEME.displayModeDefault, THEME.combinedLayoutDefault = THEME:displayDefaults(
+    function(key) return mod.options:get(key) end, legacyInstallation)
+  for _, row in ipairs(THEME.optionSchema) do
+    if row.key == "display_mode" then row.default = THEME.displayModeDefault end
+  end
+  if displaySetup == nil and mod.cache and mod.cache.write then
+    mod.cache:write("display/setup-v1", THEME.displaySetupFresh and "pending" or "done")
+  end
 
   -- Host path [all games]: stock option menus lack Gear visibility/reset descriptors; publish a compatible copy while preserving the richer Gear schema.
   -- Recomp's stock menu only understands equals/not_equals visibility and

@@ -167,11 +167,12 @@ function THEME:statusName(id, content)
 end
 
 -- Host path [all games]: old window_layout values seed display_mode/combined_layout only when the new settings are absent.
-function THEME:displayDefaults(get)
+function THEME:displayDefaults(get, existing)
   local legacy = get("window_layout")
   local mode = get("display_mode")
   if mode == nil then
-    mode = legacy and legacy ~= "off" and "combined" or "separate"
+    mode = legacy and legacy ~= "off" and "combined"
+      or (legacy == "off" or existing) and "separate" or "combined"
   end
   local layout = get("combined_layout")
   if layout == nil then
@@ -182,19 +183,21 @@ function THEME:displayDefaults(get)
 end
 
 function THEME:displayMode(options)
-  return options:get("display_mode") or self.displayModeDefault
+  return self.displayModeOverride or options:get("display_mode") or self.displayModeDefault
 end
 
 function THEME:windowMode(options)
   local mode = self:displayMode(options)
   if mode == "fullscreen" then return "fullscreen" end
   if mode == "combined" then
+    if self.displayModeOverride then return "auto" end
     return options:get("combined_layout") or self.combinedLayoutDefault
   end
   return "off"
 end
 
 function THEME:gearPrimary(options, swapped)
+  if self.displayModeOverride then return false end
   local primary = self:displayMode(options) == "fullscreen"
     and (options:get("fullscreen_start") or "game")
     or (options:get("combined_primary") or "game")
